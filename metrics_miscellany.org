@@ -69,4 +69,59 @@ if __name__=='__main__':
     main()
 
 #+end_src
-* 
+* Hypothesis Tests
+#+begin_src python :tangle metrics_miscellany/tests.py
+from statsmodels.stats import correlation_tools
+from scipy import stats
+import pandas as pd
+import numpy as np
+
+def chi2_test(restriction,b,V,TEST=False):
+
+    myb = b.query(restriction)
+
+    myV = correlation_tools.cov_nearest(V,threshold=1e-10)
+    
+    myV = pd.DataFrame(myV,index=V.index,columns=V.columns).reindex(myb.index,axis=0).reindex(myb.index,axis=1)
+
+    if TEST: # Generate values of my that satisfy Var(myb)=Vb and Emyb=0
+        myb = myb*0 + stats.multivariate_normal(cov=((1e0)*np.eye(myV.shape[0]) + myV)).rvs().reshape((-1,1))
+
+    chi2 = (myb.values.T@np.linalg.inv(myV)@myb).values[0][0]
+
+    return chi2,1-stats.distributions.chi2.cdf(chi2,df=len(myb)),len(myb)
+
+
+#+end_src
+
+** Test of chi2_test
+#+begin_src python :tangle metrics_miscellany/test/test_chi2_test.py
+import pandas as pd
+from scipy import stats
+from metrics_miscellany import tests
+
+def main():
+
+    labels = ['a','b']
+    D = pd.DataFrame([[2,1],[2,2]],index=labels,columns=labels)
+    D.index.name = 'Variable'
+    D.columns.name = 'Variable'
+
+    V = D.T@D
+
+    b = pd.DataFrame(stats.multivariate_normal(cov=V).rvs(),index=labels)
+    b.index.name = 'Variable'
+
+    return tests.chi2_test("Variable in ['a']",b,V)
+
+if __name__ == '__main__':
+    p = []
+    m = 1000
+    for i in range(m):
+        p.append(main()[1])
+
+    
+
+
+
+#+end_src
