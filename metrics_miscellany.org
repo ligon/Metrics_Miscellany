@@ -1,10 +1,11 @@
 * Wrap some Statsmodels estimators to preserve pandas labels
 ** OLS
-#+begin_src python :tangle metrics_miscellany/ols.py
+#+begin_src python :tangle metrics_miscellany/estimators.py
 import statsmodels.api as sm
 from statsmodels.stats import correlation_tools
 import numpy as np
 import warnings
+import pandas as pd
 
 def ols(X,y,cov_type='HC3'):
     """OLS estimator of b in y = Xb + u. 
@@ -32,6 +33,11 @@ def ols(X,y,cov_type='HC3'):
         V = est.cov_HC0
     else:
         raise ValueError("Unknown type of covariance matrix.")
+
+    if np.linalg.eigh(V)[0].min()<0:
+        V = correlation_tools.cov_nearest(V,method='nearest')
+        warnings.warn("Estimated covariance matrix not positive (semi-) definite.  Correcting!  Estimated variances should not be affected.")
+
     V = pd.DataFrame(V,index=X.columns,columns=X.columns)
 
     return b,V
@@ -41,18 +47,23 @@ def ols(X,y,cov_type='HC3'):
 *** OLS Tests
 #+begin_src python :tangle metrics_miscellany/test/test_ols.py
 import pandas as pd
-import metrics_miscellany as mm
+from metrics_miscellany.estimators import ols
 import numpy as np
 
-def main(N=1000,tol=1e-4):
-    x = pd.DataFrame(np.random.standard_normal((N,)))
+def main(N=500000,tol=1e-3):
+
+    x = pd.DataFrame({'x':np.random.standard_normal((N,))})
+    x['Constant'] = 1
+
+    beta = pd.DataFrame({'Coefficients':[1,0]},index=['x','Constant'])
+
     u = pd.DataFrame(np.random.standard_normal((N,)))
 
-    y = x + u
+    y = (x@beta).values + u.values
 
-    b,V = mm.ols(x,y)
+    b,V = ols(x,y)
 
-    assert np.abs(b-1)<tol
+    assert np.abs(b-beta.squeeze()).max() < tol
 
 if __name__=='__main__':
     main()
