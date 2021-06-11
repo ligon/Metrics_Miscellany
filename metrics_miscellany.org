@@ -1,4 +1,5 @@
 * Wrap some Statsmodels estimators to preserve pandas labels
+** OLS
 #+begin_src python :tangle metrics_miscellany/ols.py
 import statsmodels.api as sm
 from statsmodels.stats import correlation_tools
@@ -6,6 +7,13 @@ import numpy as np
 import warnings
 
 def ols(X,y,cov_type='HC3'):
+    """OLS estimator of b in y = Xb + u. 
+
+    Returns both estimate b as well as an estimate of Var(b).
+
+    The estimator used for the covariance matrix depends on the
+    optional argument =cov_type=.
+    """
     est = sm.OLS(y,X).fit()
     b = pd.Series(est.params,index=X.columns)
     if cov_type=='HC3':
@@ -23,9 +31,31 @@ def ols(X,y,cov_type='HC3'):
     elif cov_type=='HC0':
         V = est.cov_HC0
     else:
-        raise ValueError,"Unknown type of covariance matrix."
+        raise ValueError("Unknown type of covariance matrix.")
     V = pd.DataFrame(V,index=X.columns,columns=X.columns)
 
     return b,V
     
 #+end_src
+
+*** OLS Tests
+#+begin_src python :tangle metrics_miscellany/test/test_ols.py
+import pandas as pd
+import metrics_miscellany as mm
+import numpy as np
+
+def main(N=1000,tol=1e-4):
+    x = pd.DataFrame(np.random.standard_normal((N,)))
+    u = pd.DataFrame(np.random.standard_normal((N,)))
+
+    y = x + u
+
+    b,V = mm.ols(x,y)
+
+    assert np.abs(b-1)<tol
+
+if __name__=='__main__':
+    main()
+
+#+end_src
+* 
