@@ -1,0 +1,31 @@
+* Wrap some Statsmodels estimators to preserve pandas labels
+#+begin_src python :tangle metrics_miscellany/ols.py
+import statsmodels.api as sm
+from statsmodels.stats import correlation_tools
+import numpy as np
+import warnings
+
+def ols(X,y,cov_type='HC3'):
+    est = sm.OLS(y,X).fit()
+    b = pd.Series(est.params,index=X.columns)
+    if cov_type=='HC3':
+        V = est.cov_HC3
+    elif cov_type=='OLS':
+        XX = X.T@X
+        if np.linalg.eigh(XX)[0].min()<0:
+            XX = correlation_tools.cov_nearest(XX,method='nearest')
+            warnings.warn("X'X not positive (semi-) definite.  Correcting!  Estimated variances should not be affected.")
+        V = est.resid.var()*np.linalg.inv(XX)
+    elif cov_type=='HC2':
+        V = est.cov_HC2
+    elif cov_type=='HC1':
+        V = est.cov_HC1
+    elif cov_type=='HC0':
+        V = est.cov_HC0
+    else:
+        raise ValueError,"Unknown type of covariance matrix."
+    V = pd.DataFrame(V,index=X.columns,columns=X.columns)
+
+    return b,V
+    
+#+end_src

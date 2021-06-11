@@ -1,0 +1,11 @@
+*.pyc
+auto*
+*.pyg
+build/
+dist/
+*/_minted*/
+/CHANGES.txt
+metrics_miscellany/*
+.cache/
+/.tangle
+/.test
