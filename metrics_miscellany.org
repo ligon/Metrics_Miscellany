@@ -1,4 +1,4 @@
-* Wrap some Statsmodels estimators to preserve pandas labels
+* Estimators
 ** OLS
 #+begin_src python :tangle metrics_miscellany/estimators.py
 import statsmodels.api as sm
@@ -7,16 +7,21 @@ import numpy as np
 import warnings
 import pandas as pd
 
-def ols(X,y,cov_type='HC3'):
+def ols(X,y,cov_type='HC3',PSD_COV=False):
     """OLS estimator of b in y = Xb + u. 
 
     Returns both estimate b as well as an estimate of Var(b).
 
     The estimator used for the covariance matrix depends on the
     optional argument =cov_type=.
+
+    If optional flag PSD_COV is set, then an effort is made to ensure that
+    the estimated covariance matrix is positive semi-definite.  If PSD_COV is 
+    set to a positive float, then this will be taken to be the smallest eigenvalue
+    of the 'corrected' matrix.
     """
     est = sm.OLS(y,X).fit()
-    b = pd.Series(est.params,index=X.columns)
+    b = pd.DataFrame({'Coefficients':est.params.values},index=X.columns)
     if cov_type=='HC3':
         V = est.cov_HC3
     elif cov_type=='OLS':
@@ -34,9 +39,14 @@ def ols(X,y,cov_type='HC3'):
     else:
         raise ValueError("Unknown type of covariance matrix.")
 
-    if np.linalg.eigh(V)[0].min()<0:
-        V = correlation_tools.cov_nearest(V,method='nearest')
-        warnings.warn("Estimated covariance matrix not positive (semi-) definite.  Correcting!  Estimated variances should not be affected.")
+    if PSD_COV:
+        if PSD_COV is True: 
+            PSD_COV = (b**2).min()
+        s,U = np.linalg.eigh((V+V.T)/2)
+        if s.min()<PSD_COV:
+            oldV = V
+            V = U@np.diag(np.maximum(s,PSD_COV))@U.T
+            warnings.warn("Estimated covariance matrix not positive (semi-) definite.\nCorrecting! Norm of difference is %g." % np.linalg.norm(oldV-V))
 
     V = pd.DataFrame(V,index=X.columns,columns=X.columns)
 
@@ -70,35 +80,69 @@ if __name__=='__main__':
 
 #+end_src
 * Hypothesis Tests
+** Chi square tests
 #+begin_src python :tangle metrics_miscellany/tests.py
-from statsmodels.stats import correlation_tools
+from metrics_miscellany import utils
 from scipy import stats
 import pandas as pd
 import numpy as np
 
-def chi2_test(restriction,b,V,TEST=False):
+def chi2_test(b,V,var_selection=None,R=None,TEST=False):
+    """Construct chi2 test of R'b = 0.
 
-    myb = b.query(restriction)
+    If R is None then test is b = 0.
 
-    myV = correlation_tools.cov_nearest(V,threshold=1e-10)
+    If one wishes to test a hypothesis regarding only a subset of elements of b,
+    this subset can be chosen by specifying var_selection as either a query string
+    or as a list.
+    """
+
+    if var_selection is not None:
+        if type(var_selection) is str:
+            myb = b.query(var_selection)
+        elif type(var_selection) is list:
+            myb = b.loc[var_selection]
+        else:
+            raise(ValueError,"var_selection should be a query string of list of variable names")
+    else:
+        myb = b
+
+
+    # Drop parts of matrix not involved in test
+    myV = V.reindex(myb.index,axis=0).reindex(myb.index,axis=1)
+
+    myV = utils.cov_nearest(myV,threshold=1e-10)
     
-    myV = pd.DataFrame(myV,index=V.index,columns=V.columns).reindex(myb.index,axis=0).reindex(myb.index,axis=1)
+    if R is not None:
+        myV = R.T@myV@R
+        myb = R.T@b
+        if np.isscalar(myV):
+            myV = np.array([[myV]])
+            myb = np.array([[myb]])
 
     if TEST: # Generate values of my that satisfy Var(myb)=Vb and Emyb=0
         myb = myb*0 + stats.multivariate_normal(cov=((1e0)*np.eye(myV.shape[0]) + myV)).rvs().reshape((-1,1))
 
-    chi2 = (myb.values.T@np.linalg.inv(myV)@myb).values[0][0]
+    # "Invert"...
 
-    return chi2,1-stats.distributions.chi2.cdf(chi2,df=len(myb)),len(myb)
+    L = np.linalg.cholesky(myV)
+    y = np.linalg.solve(L.T,myb)
+
+    chi2 = y.T@y
+
+    y = pd.Series(y.squeeze(),index=myb.index)
+
+    return chi2,1-stats.distributions.chi2.cdf(chi2,df=len(myb))
 
 
 #+end_src
 
-** Test of chi2_test
-#+begin_src python :tangle metrics_miscellany/test/test_chi2_test.py
+*** Test of chi2_test
+ #+begin_src python :tangle metrics_miscellany/test/test_chi2_test.py
 import pandas as pd
 from scipy import stats
 from metrics_miscellany import tests
+import numpy as np
 
 def main():
 
@@ -112,7 +156,7 @@ def main():
     b = pd.DataFrame(stats.multivariate_normal(cov=V).rvs(),index=labels)
     b.index.name = 'Variable'
 
-    return tests.chi2_test("Variable in ['a']",b,V)
+    return tests.chi2_test(b,V,"Variable in ['a']")
 
 if __name__ == '__main__':
     p = []
@@ -120,8 +164,288 @@ if __name__ == '__main__':
     for i in range(m):
         p.append(main()[1])
 
-    
+    p = pd.Series([x[0][0] for x in p]).squeeze()
 
+    X = np.linspace(.05,.95,10)
+    assert np.linalg.norm(p.quantile(X) - X)/len(X) < 1e-1
+
+ #+end_src
+
+** Randomization Inference
+   Suppose we want to estimate a linear regression
+   \[
+       y = \alpha + X\beta + W\gamma + u.
+   \]
+   
+   We obtain estimates $(b,V_b)$ of the coefficients $\beta$ and
+   corresponding covariance matrix.  We want to be able to conduct a
+   test of the hypothesis $R'\beta=0$.
+
+   The idea here is to use resampling of just the variables $X$
+   without replacement as a way of drawing inferences regarding
+   \beta.  In particular, we randomly permute the rows of $X$,
+   creating a new variable $P$, and estimate 
+   \[
+       y = \alpha + P\delta + W\gamma + u,
+   \]
+   yielding estimates $(d,V_d)$ for the coefficients $\delta$ and the
+   covariance matrix of these estimates. 
+
+   Note that $R'\E d = 0$ by construction, for any set of linear
+   restructions $R$.  The linear restrictions themselves suggest a
+   $\chi^2$ test; denote this statistic by $T(R,d,V)$.  We repeat the
+   permute-estimate-test cycle many times.  Then the proportion of
+   times that the test statistic associated with the test of
+   $$R'(\beta-\hat\delta)>0$ gives us a \(p\)-value associated with a
+   test of the null hypothesis that $\beta>c$.  A two-sided test can
+   be constructed from the absolute difference in absolute values;
+   i.e., $|\beta - \delta|>c$.
+
+#+begin_src python :tangle metrics_miscellany/tests.py
+import pandas as pd
+import numpy as np
+from metrics_miscellany.estimators import ols
+
+def randomization_inference(vars,X,y,permute_levels=None,R=None,tol=1e-3,VERBOSE=False,return_draws=False):
+    """
+    Return p-values associated with hypothesis that coefficients 
+    associated with vars are jointly equal to zero.
+
+    Ethan Ligon                                       June 2021
+    """
+
+    assert np.all([v in X.columns for v in vars]), "vars must correspond to columns of X."
+
+    b,V = ols(X,y)
+
+    beta = b.squeeze()[vars]
+    chi2 = chi2_test(beta,V,R=R)[0]
+
+    last = np.inf
+    p = 0
+    i = 0
+    Chi2 = []
+    while (np.linalg.norm(p-last)>tol) or (i < 30):
+        last = p
+        if permute_levels is None:
+            P= pd.DataFrame(np.random.permutation(X.loc[:,vars]),index=X.index,columns=vars)
+        else:
+            levels = X.index.names
+            fixed = X.index.names.difference(permute_levels)
+            P = pd.DataFrame(X.loc[:,vars].unstack(fixed).sample(frac=1).stack(fixed).values,index=X.index,columns=vars)
+
+        myX = pd.concat([X.loc[:,X.columns.difference(vars)],P],axis=1)
+        b,V = ols(myX,y)
+        Chi2.append(chi2_test(b.squeeze()[vars],V,R=R)[0])
+        p = (chi2<Chi2[-1])/(i+1) + last*i/(i+1)
+        i += 1
+        if VERBOSE: print("Latest chi2 (randomized,actual,p): (%6.2f,%6.2f,%6.4f)" % (Chi2[-1],chi2,p))
+
+    if return_draws:
+        return p,pd.Series(Chi2)
+    else:
+        return p
+
+#+end_src
+
+*** Test of randomization inference
+#+begin_src ipython :tangle metrics_miscellany/test/test_randomization_inference.py
+import pandas as pd
+import scipy.stats.distributions as dists
+from metrics_miscellany import estimators, tests
+import matplotlib.pyplot as plt
+
+n=1000
+p = 0.5
+# Generate contextual variables; probability of being female is p
+C = pd.DataFrame({'Female':dists.binom(1,p).rvs(size=n)})
+C['Male'] = 1-C
+
+delta = pd.Series({"Female":1.,"Male":0.5})
+
+T1 = pd.Series(dists.norm.rvs(size=n),name='Treatment1')
+T2 = pd.Series(dists.norm.rvs(size=n),name='Treatment2')
+
+# Interactions:
+TC = C.multiply(T1,axis=0)
+TC.columns = ['TxFemale','TxMale']
+
+# Construct RHS matrix
+X = pd.concat([T1,T2,C,TC],axis=1).iloc[:,:-1]
+dC = C@delta 
+
+# Generate outcome y with *no* treatment effect, to look for Type I errors
+epsilon= pd.Series(dists.norm.rvs(size=n),name='epsilon')
+
+Y = dC + epsilon
+Y.name = 'outcome'
+
+p_i = tests.randomization_inference(['Treatment1'],X,Y,VERBOSE=False)   
+
+# Generate outcome y with uniform treatment effect, to look for Type II errors
+epsilon= pd.Series(dists.norm.rvs(size=n),name='epsilon')
+
+Y = T1 + T2 + dC + epsilon
+Y.name = 'outcome'
+
+p_ii = tests.randomization_inference(['Treatment1'],X,Y,VERBOSE=False)   
+
+# Test Treatment1 == Treatment2
+R = pd.DataFrame({'Coefficients':[1,-1]},index=['Treatment1','Treatment2'])
+
+p_iii = tests.randomization_inference(['Treatment1','Treatment2'],X.drop('TxFemale',axis=1),Y,R=R,VERBOSE=True)   
+
+#+end_src
+
+** Maunchly test of sphericity
+This test asks whether, given a sample covariance matrix $S$, one can
+reject the hypothesis that the population covariance matrix
+$\Sigma=\sigma I$; i.e., whether the random vector with variance
+matrix $\Sigma$ has a spherical distribution or not (note that the
+test is obtained under the assumption that the random vectors are
+normally distributed), and is due to Maunchly (1940)[fn:: See
+cite:muirhead82 p. 334.].
+#+begin_src python :tangle metrics_miscellany/tests.py
+import numpy as np
+from scipy.stats.distributions import chi2
+
+def maunchly(C,N):
+    """Given a sample covariance matrix C estimating using N observations,
+       return p-value associated with test of whether the population
+       covariance matrix is proportional to the identity matrix.
+    """
+
+    m = C.shape[0]
+
+    V = np.linalg.det(C)/(np.trace(C)/m)**m
+
+    d = 1 - (2*(m-1)**2 + (m-1) + 2)/(6*(m-1)*(N-1))
+
+    x2 = -(N-1)*d*V  # Chi-squared statistic
+
+    df = m*(m-1)/2 - 1
+
+    return 1 - chi2.cdf(x2,df)
 
 
 #+end_src
+* Utils
+** Some QR Tricks
+*** QR Decomposition
+Begin with wrapping the numpy qr decomposition to return dataframes.
+#+begin_src python  :tangle metrics_miscellany/utils.py
+import numpy as np
+import pandas as pd
+
+def qr(X):
+    """
+    Pandas-friendly QR decomposition.
+    """
+    assert X.shape[0]>=X.shape[1]
+
+    Q,R = np.linalg.qr(X)
+    Q = pd.DataFrame(Q,index=X.index, columns=X.columns)
+    R = pd.DataFrame(R,index=X.columns, columns=X.columns)
+
+    return Q,R
+#+end_src
+
+*** Leverage
+Now, use the fact that the leverage of different observations in $X$
+are the sums of squares of rows of $Q$ in the $QR$ decomposition
+#+begin_src python :tangle metrics_miscellany/utils.py
+
+def leverage(X):
+    """
+    Return leverage of observations in X (the diagonals of the hat matrix).
+    """
+
+    Q = qr(X)[0]
+
+    return (Q**2).sum(axis=1)
+#+end_src
+
+*** Hat factory
+
+Now construct a factory that returns a function to put the "hat"
+on y.  Though mathematically this looks like $X(X'X)^{-1}X'=QQ'$ in
+practice we don't want to construct an $N\times N$ matrix like this,
+as it's often too expensive.
+
+#+begin_src python :tangle metrics_miscellany/utils.py
+def hat_factory(X):
+    """
+    Return a function hat(y) that returns X(X'X)^{-1}X'y.
+
+    This is the least squares prediction of y given X.
+
+    We use the fact that  the hat matrix is equal to QQ',
+    where Q comes from the QR decomposition of X.
+    """
+    Q = qr(X)[0]
+
+    def hat(y):
+        return Q@(Q.T@y)
+
+    return hat
+#+end_src
+
+
+**  "Fixing" matrices that aren't quite positive definite
+#+begin_src python :tangle metrics_miscellany/utils.py
+from statsmodels.stats.correlation_tools import cov_nearest as _cov_nearest
+import pandas as pd
+
+def cov_nearest(V,threshold=1e-12):
+    """
+    Return a positive definite matrix which is "nearest" to the symmetric matrix V,
+    with the smallest eigenvalue not less than threshold.
+    """
+    s,U = np.linalg.eigh((V+V.T)/2) # Eigenvalue decomposition of symmetric matrix
+
+    s = np.maximum(s,threshold)
+
+    return V*0 + U@np.diag(s)@U.T  # Trick preserves attributes of dataframe V
+#+end_src
+
+* Random
+** Random permutations of dataframes
+#+begin_src python :tangle metrics_miscellany/random.py
+import numpy as np
+import pandas as pd
+
+def permutation(df,columns=None,permute_levels=None):
+    """Randomly permute rows of df[columns] at permute_levels.
+    """
+
+    df = pd.DataFrame(df) # Make sure we have a DataFrame.
+
+    if columns is None: columns = df.columns
+
+    if permute_levels is None:
+        P = pd.DataFrame(np.random.permutation(df.loc[:,columns]),index=df.index,columns=columns)
+    else:
+       fixed = df.index.names.difference(permute_levels)
+       P = pd.DataFrame(df.loc[:,columns].unstack(fixed).sample(frac=1).stack(fixed).values,index=df.index,columns=columns)
+
+    return P
+
+#+end_src
+*** Test permutation
+#+begin_src python :tangle metrics_miscellany/test/test_permutation.py
+import numpy as np
+import pandas as pd
+from metrics_miscellany import random
+
+T = pd.Series(np.random.rand(10)>.5)
+
+df = pd.DataFrame({'a':T,'b':T}).stack()
+df = df + 0
+df.index.names = ['i','t']
+
+p = random.permutation(df,permute_levels=['i'])
+
+assert np.all(p.unstack('t').std(axis=1)==0)
+
+#+end_src
+
