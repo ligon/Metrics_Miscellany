@@ -297,37 +297,148 @@ p_iii = tests.randomization_inference(['Treatment1','Treatment2'],X.drop('TxFema
 
 #+end_src
 
-** Maunchly test of sphericity
+** Maunchy test of sphericity
 This test asks whether, given a sample covariance matrix $S$, one can
 reject the hypothesis that the population covariance matrix
 $\Sigma=\sigma I$; i.e., whether the random vector with variance
 matrix $\Sigma$ has a spherical distribution or not (note that the
 test is obtained under the assumption that the random vectors are
-normally distributed), and is due to Maunchly (1940)[fn:: See
+normally distributed), and is due to Maunchy (1940)[fn:: See
 cite:muirhead82 p. 334.].
 #+begin_src python :tangle metrics_miscellany/tests.py
 import numpy as np
 from scipy.stats.distributions import chi2
 
-def maunchly(C,N):
+def maunchy(C,N):
     """Given a sample covariance matrix C estimating using N observations,
        return p-value associated with test of whether the population
        covariance matrix is proportional to the identity matrix.
     """
 
+    raise NotImplementedError
+
     m = C.shape[0]
 
-    V = np.linalg.det(C)/(np.trace(C)/m)**m
+    V = np.linalg.det(C)/((np.trace(C)/m)**m)
 
-    d = 1 - (2*(m-1)**2 + (m-1) + 2)/(6*(m-1)*(N-1))
+    rho = 1 - (2*m**2 + m + 2)/(6*m*(N-1))
 
-    x2 = -(N-1)*d*V  # Chi-squared statistic
+    w2 = (m-1)*(m-2)*(m+2)*(2*m**3 + 6*m**2 + 3*m + 2)/(288*(m**2) * ((N-1)**2) * rho**2)
 
-    df = m*(m-1)/2 - 1
+    gamma = (((N-1)*rho)**2)*w2
 
-    return 1 - chi2.cdf(x2,df)
+    x2 = -2*(N-1)*rho*np.log(V)  # Chi-squared statistic
+
+    df = (m+2)*(m-1)/2
+
+    px2 = chi2.cdf(x2,df)
+
+    p = px2 + gamma/(((N-1)*rho)**2) * (chi2.cdf(x2,df+4) - px2)
+
+    return x2,1 - px2
+#+end_src
+**** Test of Maunchy 
+#+begin_src python :tangle metrics_miscellany/test/test_maunchy.py
+import numpy as np
+from metrics_miscellany import tests
+import scipy.stats.distributions as iid
+import matplotlib.pyplot as plt
+
+N = 300
+k = 10
+
+Chi2 = []
+P = []
+for m in range(1000):
+    X = iid.norm.rvs(size=(N,k))
+
+    C = np.cov(X,rowvar=False)
+    x,p = tests.maunchy(C,N)
+    Chi2.append(x)
+    P.append(p)
+    
+df = (k+2)*(k-1)/2
 
 
+range = np.linspace(np.min(Chi2),np.max(Chi2),500)
+
+fig,ax = plt.subplots()
+ax.plot(range,[iid.chi2.pdf(x,df) for x in range])[0]
+ax.hist(Chi2,bins=int(np.ceil(np.sqrt(len(Chi2)))),density=True)
+#print(
+#+end_src
+** Inference on eigenvalues
+Suppose we wish to test whether a covariance matrix has a structure $\Sigma =
+\Lambda\Lambda^\T + \lambda I$, where $\Lambda$ is rank $r$.  This
+structure is often assumed in exact factor models, for example.
+cite:srivastava-khastri79 (\S 9.5) suggest a simple likelihood ratio test,
+implemented here.  
+#+begin_src python :tangle metrics_miscellany/tests.py
+import numpy as np
+from scipy.stats.distributions import chi2
+
+def kr79(C,q,N):
+    """Given a sample mxm covariance matrix C estimating using N observations,
+       return p-value associated with test of whether the population
+       covariance matrix has last q eigenvalues equal or not, where q+k=m.
+    """
+
+    m = C.shape[0]
+
+    l = np.linalg.eigvalsh(C)  # eigenvalues in *ascending* order
+
+    Q = (np.prod(l[:q])/(np.mean(l[:q])**q))**(N/2) # LR test statistic
+
+    x2 = -2*np.log(Q)  # Chi-squared statistic
+
+    df = (q-1)*(q+2)/2
+
+    px2 = chi2.cdf(x2,df)
+
+    #p = px2 + gamma/(((N-1)*rho)**2) * (chi2.cdf(x2,df+4) - px2)
+
+    return x2,1 - px2
+#+end_src
+**** Test of kr79
+#+begin_src python :tangle metrics_miscellany/test/test_kr79.py
+import numpy as np
+from metrics_miscellany import tests
+import scipy.stats.distributions as iid
+from scipy import stats
+import matplotlib.pyplot as plt
+
+N = 3000
+m = 10
+r = 3
+q = m - r
+Sigma = iid.norm.rvs(size=(m,r))
+Sigma = Sigma@Sigma.T 
+
+l,v = np.linalg.eigh(Sigma)
+l = np.maximum(l,0) 
+
+Ssqrt = v@np.diag(np.sqrt(l))@v
+
+Chi2 = []
+P = []
+for s in range(1000):
+    X = iid.norm.rvs(size=(N,m))@Ssqrt.T
+    e = iid.norm.rvs(size=(N,m))
+
+    C = np.cov(X + e,rowvar=False)
+    x,p = tests.kr79(C,q,N)
+    Chi2.append(x)
+    P.append(p)
+    
+df = (q+2)*(q-1)/2
+
+range = np.linspace(np.min(Chi2),np.max(Chi2),500)
+
+fig,ax = plt.subplots()
+ax.plot(range,[iid.chi2.pdf(x,df) for x in range])
+ax.hist(Chi2,bins=int(np.ceil(np.sqrt(len(Chi2)))),density=True)
+
+assert stats.kstest(P,stats.distributions.uniform.cdf).pvalue>0.01
 #+end_src
 * Utils
 ** Some QR Tricks
