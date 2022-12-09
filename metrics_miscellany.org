@@ -411,19 +411,37 @@ N = 3000
 m = 10
 r = 3
 q = m - r
+
+# Build covariance matrix for "systematic" variation
 Sigma = iid.norm.rvs(size=(m,r))
-Sigma = Sigma@Sigma.T 
+Sigma = Sigma@Sigma.T   # Positive definite
 
 l,v = np.linalg.eigh(Sigma)
 l = np.maximum(l,0) 
 
 Ssqrt = v@np.diag(np.sqrt(l))@v
 
+assert np.allclose(Sigma,Ssqrt@Ssqrt.T)
+
+# Build covariance matrix for errors.
+## Use (something proportional to) identity for tests of size, otherwise tests of power.
+#Psi = 10.0*np.eye(m)  + np.diag(range(1,m+1))/(m**3)
+Psi = np.eye(m)
+Psi = Psi@Psi.T   # Positive definite
+
+l,v = np.linalg.eigh(Psi)
+l = np.maximum(l,0) 
+
+Psisqrt = v@np.diag(np.sqrt(l))@v
+
+assert np.allclose(Psi,Psisqrt@Psisqrt.T)
+
+
 Chi2 = []
 P = []
 for s in range(1000):
     X = iid.norm.rvs(size=(N,m))@Ssqrt.T
-    e = iid.norm.rvs(size=(N,m))
+    e = iid.norm.rvs(size=(N,m))@Psisqrt.T
 
     C = np.cov(X + e,rowvar=False)
     x,p = tests.kr79(C,q,N)
@@ -432,11 +450,11 @@ for s in range(1000):
     
 df = (q+2)*(q-1)/2
 
-range = np.linspace(np.min(Chi2),np.max(Chi2),500)
+xrange = np.linspace(np.min(Chi2),np.max(Chi2),500)
 
 fig,ax = plt.subplots()
-ax.plot(range,[iid.chi2.pdf(x,df) for x in range])
 ax.hist(Chi2,bins=int(np.ceil(np.sqrt(len(Chi2)))),density=True)
+ax.plot(xrange,[iid.chi2.pdf(x,df) for x in xrange])
 
 assert stats.kstest(P,stats.distributions.uniform.cdf).pvalue>0.01
 #+end_src
