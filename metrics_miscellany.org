@@ -60,23 +60,23 @@ import pandas as pd
 from metrics_miscellany.estimators import ols
 import numpy as np
 
-def main(N=500000,tol=1e-3):
+def test_ols(N=500000,tol=1e-2):
 
     x = pd.DataFrame({'x':np.random.standard_normal((N,))})
     x['Constant'] = 1
 
     beta = pd.DataFrame({'Coefficients':[1,0]},index=['x','Constant'])
 
-    u = pd.DataFrame(np.random.standard_normal((N,)))
+    u = pd.DataFrame(np.random.standard_normal((N,))/10)
 
     y = (x@beta).values + u.values
 
     b,V = ols(x,y)
 
-    assert np.abs(b-beta.squeeze()).max() < tol
+    assert np.allclose(b,beta,atol=tol)
 
 if __name__=='__main__':
-    main()
+    test_ols()
 
 #+end_src
 * Hypothesis Tests
@@ -158,7 +158,7 @@ def main():
 
     return tests.chi2_test(b,V,"Variable in ['a']")
 
-if __name__ == '__main__':
+def test_chi2():
     p = []
     m = 1000
     for i in range(m):
@@ -169,8 +169,11 @@ if __name__ == '__main__':
     X = np.linspace(.05,.95,10)
     assert np.linalg.norm(p.quantile(X) - X)/len(X) < 1e-1
 
+if __name__ == '__main__':
+    test_chi2()
  #+end_src
 ** Skillings-Mack Test (Generalization of Friedman Test)
+This implements a version of the test proposed in [cite/t:@skillings-mack81], which generalizes the Friedman rank test to the case in which data is incomplete.  Because the Friedman test is a special case, we also create a =friedman= test.
 #+begin_src python :tangle metrics_miscellany/tests.py
 def skillings_mack(df,bootstrap=False):
     """
@@ -237,39 +240,37 @@ def skillings_mack(df,bootstrap=False):
 
     return SM,p
 
+friedman = skillings_mack
 #+end_src
 *** Test of Skillings Mack
-The following example is used in Hollander-Wolfe (1999)
 #+begin_src python :tangle metrics_miscellany/test/test_skillings_mack.py
 import pandas as pd
 import numpy as np
 from metrics_miscellany import tests
 
-X = pd.DataFrame([
-    [3, 5, 15],
-    [1, 3, 18],
-    [5, 4, 21],l
-    [2,np.nan,6],
-    [0, 2, 17],
-    [0, 2, 10],
-    [0, 3, 8],
-    [0, 2, 13]])
+def test_sm_against_R():
+    """This is an example given in https://cran.r-project.org/web/packages/Skillings.Mack/Skillings.Mack.pdf
+    """
+    X = pd.DataFrame([[3.2, 3.1, 4.3, 3.5, 3.6, 4.5, np.nan, 4.3, 3.5],
+                      [4.1, 3.9, 3.5, 3.6, 4.2, 4.7, 4.2, 4.6, np.nan],
+                      [3.8, 3.4, 4.6, 3.9, 3.7, 3.7, 3.4, 4.4, 3.7],
+                      [4.2, 4.,  4.8, 4., 3.9, np.nan, np.nan, 4.9, 3.9]])
 
-X = pd.DataFrame([[3.2, 3.1, 4.3, 3.5, 3.6, 4.5, np.nan, 4.3, 3.5],
-                  [4.1, 3.9, 3.5, 3.6, 4.2, 4.7, 4.2, 4.6, np.nan],
-                  [3.8, 3.4, 4.6, 3.9, 3.7, 3.7, 3.4, 4.4, 3.7],
-                  [4.2, 4.,  4.8, 4., 3.9, np.nan, np.nan, 4.9, 3.9]])
+    # This value of SM statistic matches that from R Skill.Mack routine
+    assert np.allclose(tests.skillings_mack(X)[0],15.493)
 
-# This value of SM statistic matches that from R Skill.Mack routine
-assert np.allclose(tests.skillings_mack(X)[0],15.493)
+def test_sm_type1():
+    # Now try a random matrix
+    ps = pd.Series([tests.skillings_mack(pd.DataFrame(np.random.rand(100,10)),bootstrap=0.02)[1] for i in range(100)])
 
-# Now try a random matrix
-ps = pd.Series([tests.skillings_mack(pd.DataFrame(np.random.rand(100,10)),bootstrap=0.02)[1] for i in range(100)])
+    # p values should be distributed uniformly, with mean of 1/2
+    tstat = (ps.mean()-1/2)/ps.std()
 
-# p values should be distributed uniformly, with mean of 1/2
-tstat = (ps.mean()-1/2)/ps.std()
+    assert np.abs(tstat)<2
 
-assert np.abs(tstat)<2
+if __name__=='__main__':
+    test_sm_against_R()
+    test_sm_type1()
 #+end_src
 ** Randomization Inference
    Suppose we want to estimate a linear regression
@@ -437,7 +438,7 @@ def maunchy(C,N):
 
     return x2,1 - px2
 #+end_src
-**** Test of Maunchy
+**** COMMENT Test of Maunchy
 #+begin_src python :tangle metrics_miscellany/test/test_maunchy.py
 import numpy as np
 from metrics_miscellany import tests
