@@ -7,7 +7,7 @@ all: tangle test devinstall wheel
 tangle: .tangle
 
 .tangle: $(ORG_INPUTS) 
-	(./tangle.sh metrics_miscellany.org)
+	./tangle.sh metrics_miscellany.org
 	touch .tangle
 
 test: .test 
