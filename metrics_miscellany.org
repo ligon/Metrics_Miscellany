@@ -189,7 +189,7 @@ def skillings_mack(df,bootstrap=False):
         R = R.where(~np.isnan(R),(kay+1)/2,axis=1)
 
         # Construct adjusted observation matrix
-        A = R.subtract((kay+1)/2,axis=1)@np.sqrt(12/(kay+1))
+        A = R.subtract((kay.values+1)/2,axis=1)@np.sqrt(12/(kay.values+1))
 
         # Count of observations in both columns k and l
         O = ~np.isnan(X)+0.
@@ -233,7 +233,10 @@ def skillings_mack(df,bootstrap=False):
         sms = []
         while (its < 30) or (np.abs(SE-lastSE) > tol):
             lastSE = SE
-            sms.append(construct_statistic(pd.DataFrame(np.apply_along_axis(np.random.permutation,axis=0,arr=R.values)),kay))
+            scrambled = pd.DataFrame(np.apply_along_axis(np.random.permutation,axis=0,arr=R.values),
+                                     index=R.index,columns=R.columns)
+           
+            sms.append(construct_statistic(scrambled,kay))
             SE = np.std(sms)
             its += 1
         p = np.mean(sms>SM)
