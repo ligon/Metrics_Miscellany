@@ -1,11 +1,23 @@
 * Estimators
-** OLS
+** Preliminaries
 #+begin_src python :tangle metrics_miscellany/estimators.py
 import statsmodels.api as sm
 from statsmodels.stats import correlation_tools
 import numpy as np
 import warnings
 import pandas as pd
+from . import gmm
+from . GMM_class import GMM
+
+def inv(A):
+    """Inverse of square pandas DataFrame."""
+    B = np.linalg.inv(A)
+    return pd.DataFrame(B,columns=A.columns,index=A.index)
+
+
+#+end_src
+** OLS
+#+begin_src python :tangle metrics_miscellany/estimators.py
 
 def ols(X,y,cov_type='HC3',PSD_COV=False):
     """OLS estimator of b in y = Xb + u.
@@ -20,6 +32,8 @@ def ols(X,y,cov_type='HC3',PSD_COV=False):
     set to a positive float, then this will be taken to be the smallest eigenvalue
     of the 'corrected' matrix.
     """
+    n,k = X.shape
+
     est = sm.OLS(y,X).fit()
     b = pd.DataFrame({'Coefficients':est.params.values},index=X.columns)
     if cov_type=='HC3':
@@ -79,6 +93,226 @@ if __name__=='__main__':
     test_ols()
 
 #+end_src
+** Two-stage Least Squares
+#+begin_src python :tangle metrics_miscellany/estimators.py
+def tsls(X,y,Z):
+    """
+    Two-stage least squares estimator.
+    """
+
+    n,k = X.shape
+
+    Qxz = X.T@Z/n
+
+    zzinv = inv(Z.T@Z/n)
+    b = lstsq(Qxz@zzinv@Qxz.T,Qxz@zzinv@Z.T@y/n,rcond=None)[0]
+
+    b = pd.Series(b.squeeze(),index=X.columns)
+
+    # Cov matrix
+    e = y.squeeze() - X@b
+
+    Omega = pd.DataFrame(Z.T.values@np.diag(e**2)@Z.values/n,columns=Z.columns,index=Z.columns)
+    #Omega = pd.DataFrame(e.var()*Z.T.values@Z.values/n,columns=Z.columns,index=Z.columns)
+
+
+    A = inv(Qxz@zzinv@Qxz.T)
+    V = A@(Qxz@zzinv@Omega@zzinv@Qxz.T)@A.T/n
+
+    return b,V
+
+#+end_src
+* GMM
+** Procedural interface for GMM estimator.
+#+begin_src python :tangle metrics_miscellany/gmm.py
+import numpy as np
+from numpy.linalg import inv
+from scipy.optimize import minimize_scalar, minimize
+from scipy.optimize import minimize as scipy_min
+
+__version__ = "0.3.1"
+
+######################################################
+# Beginning of procedural version of gmm routines
+def gj(b,data):
+    """Observations of g_j(b).
+
+    This defines the deviations from the predictions of our model; i.e.,
+    e_j = Z_ju_j, where EZ_ju_j=0 for *each observation*.
+
+    Returns an Nxl matrix (observations x moment conditions).
+
+    Can replace this function to 'testimate' a different model.
+
+    If passed value of b is a scalar expand to make a k-vector.
+    """
+    y,X,Z = data
+
+    # Construct vector of identical parameter if b a scalar.
+    if np.isscalar(b): b = np.array([b]*X.shape[1]).reshape((-1,1))
+
+    return Z*(y - X*b)
+
+def gN(b,data):
+    """Averages of g_j(b).
+
+    This is generic for data, to be passed to gj.
+    """
+    e = gj(b,data)
+
+    # Check to see more obs. than moments.
+    assert e.shape[0] > e.shape[1]
+
+    try:
+        return e.mean(axis=0).reshape((-1,1))
+    except AttributeError:
+        return e.mean(axis=0)
+
+def Omegahat(b,data):
+    e = gj(b,data)
+
+    # Recenter! We have Eu=0 under null.
+    # Important to use this information.
+    e = e - e.mean(axis=0)
+
+    return e.T@e/e.shape[0]
+
+def J(b,W,data):
+
+    m = gN(b,data) # Sample moments @ b
+    N = data[0].shape[0]
+
+    return (N*m.T@W@m).squeeze() # Scale by sample size
+
+def minimize(f,b_init=None):
+    if b_init is None:
+        return minimize_scalar(f).x
+    else:
+        return scipy_min(f,b_init).x
+
+def one_step_gmm(data,W=None,b_init=None):
+
+    if b_init is None:
+        b_init = 0
+
+    if W is None:
+        W = np.eye(gj(b_init,data).shape[1])
+
+    b = minimize(lambda b: J(b,W,data),b_init=b_init)
+
+    return b, J(b,W,data)
+
+def two_step_gmm(data,b_init=None):
+
+    # First step uses identity weighting matrix
+    b1 = one_step_gmm(data,b_init=b_init)[0]
+
+    # Construct 2nd step weighting matrix using
+    # first step estimate of beta
+    W2 = inv(Omegahat(b1,data))
+
+    return one_step_gmm(data,W=W2,b_init=b1)
+
+def continuously_updated_gmm(data,b_init=None):
+
+    # First step uses identity weighting matrix
+    W = lambda b: np.linalg.inv(Omegahat(b,data))
+
+    bhat = minimize(lambda b: J(b,W(b),data),b_init=b_init)
+
+    return bhat, J(bhat,W(bhat),data)
+
+
+def print_version():
+    print(__version__)
+
+# End of procedural version of gmm routines
+######################################################
+#+end_src
+** GMM Class
+#+begin_src python :tangle metrics_miscellany/GMM_class.py
+from . import gmm
+import numpy as np
+
+class GMM(object):
+
+    def __init__(self,gj,data,B,W=None):
+        """GMM problem for restrictions E(gj(b0))=0, estimated using data with b0 in R^k.
+
+           - If supplied B is a positive integer k, then
+             space taken to be R^k.
+           - If supplied B is a k-vector, then
+             parameter space taken to be R^k with B a possible
+             starting value for optimization.
+        """
+        self.gj = gj
+        gmm.gj = gj  # Overwrite member of gmm module
+        self.data = data
+
+        self.W = W
+
+        self.b = None
+
+        try:
+            self.k = len(B)
+            self.b_init = np.array(B)
+        except TypeError:
+            self.k = B
+            self.b_init = np.zeros(self.k)
+
+        self.ell = gj(self.b_init,self.data).shape[1]
+
+        if type(data) is tuple:
+            self.N = data[0].shape[0]
+        else:
+            self.N = data.shape[0]
+
+        self.minimize = gmm.minimize
+
+    def gN(self,b):
+        """Averages of g_j(b).
+
+        This is generic for data, to be passed to gj.
+        """
+        return gmm.gN(b,self.data)
+
+    def Omegahat(self,b):
+
+        return gmm.Omegahat(b,self.data)
+
+    def J(self,b,W):
+
+        return gmm.J(b,W,self.data)
+
+    def one_step_gmm(self,W=None,b_init=None):
+
+        self.b = gmm.one_step_gmm(self.data,W,b_init=self.b_init)[0]
+
+        return self.b
+
+    def two_step_gmm(self):
+
+        self.b = gmm.two_step_gmm(self.data,b_init=self.b_init)[0]
+        self.W = np.linalg.inv(self.Omegahat(self.b))
+
+        return self.b
+
+    def continuously_updated_gmm(self):
+
+        est = gmm.continuously_updated_gmm(self.data,b_init=self.b_init)[0]
+        self.b = est
+        self.W = np.linalg.inv(self.Omegahat(self.b))
+
+        return self.b
+
+
+
+if __name__=='__main__':
+    #foo = GMM(gmm.gj,
+    pass
+
+#+end_src
+
 * Hypothesis Tests
 ** Chi square tests
 #+begin_src python :tangle metrics_miscellany/tests.py
