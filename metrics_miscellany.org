@@ -4,17 +4,49 @@
 import statsmodels.api as sm
 from statsmodels.stats import correlation_tools
 import numpy as np
+from numpy.linalg import lstsq
 import warnings
 import pandas as pd
 from . import gmm
 from . GMM_class import GMM
+from . import utils
+#+end_src
+** Utils
+#+begin_src python :tangle metrics_miscellany/utils.py
+import numpy as np
+from scipy import sparse
+import pandas as pd
 
 def inv(A):
     """Inverse of square pandas DataFrame."""
+    if np.isscalar(A): A = pd.DataFrame(np.array([[A]]))
+
     B = np.linalg.inv(A)
     return pd.DataFrame(B,columns=A.columns,index=A.index)
 
+def matrix_product(X,Y):
+    """Compute matrix product X@Y, allowing for possibility of missing data."""
 
+    return X.fillna(0)@Y.fillna(0)
+
+def diag(X):
+
+    try:
+        assert X.shape[0] == X.shape[1]
+        d = pd.Series(np.diag(X),index=X.index)
+    except IndexError: # X is a series?
+        # We can wind up blowing ram if not careful...
+        d = sparse.diags(X.values)
+        d = pd.DataFrame.sparse.from_spmatrix(d,index=X.index,columns=X.index)
+    except AttributeError: # Not a pandas object?
+        d = np.diag(X)
+
+    return d
+
+def outer(S,T):
+    """Outer product of two series (vectors) S & T.
+    """
+    return pd.DataFrame(np.outer(S,T),index=S.index,columns=T.index)
 #+end_src
 ** OLS
 #+begin_src python :tangle metrics_miscellany/estimators.py
@@ -104,7 +136,7 @@ def tsls(X,y,Z):
 
     Qxz = X.T@Z/n
 
-    zzinv = inv(Z.T@Z/n)
+    zzinv = utils.inv(Z.T@Z/n)
     b = lstsq(Qxz@zzinv@Qxz.T,Qxz@zzinv@Z.T@y/n,rcond=None)[0]
 
     b = pd.Series(b.squeeze(),index=X.columns)
@@ -116,7 +148,7 @@ def tsls(X,y,Z):
     #Omega = pd.DataFrame(e.var()*Z.T.values@Z.values/n,columns=Z.columns,index=Z.columns)
 
 
-    A = inv(Qxz@zzinv@Qxz.T)
+    A = utils.inv(Qxz@zzinv@Qxz.T)
     V = A@(Qxz@zzinv@Omega@zzinv@Qxz.T)@A.T/n
 
     return b,V
@@ -126,63 +158,67 @@ def tsls(X,y,Z):
 ** Procedural interface for GMM estimator.
 #+begin_src python :tangle metrics_miscellany/gmm.py
 import numpy as np
-from numpy.linalg import inv
+from . import utils
+from . import utils
+matrix_product = utils.matrix_product
+diag = utils.diag
+inv = utils.inv
+
 from scipy.optimize import minimize_scalar, minimize
 from scipy.optimize import minimize as scipy_min
+import pandas as pd
+
+from IPython.core.debugger import Pdb
 
 __version__ = "0.3.1"
 
 ######################################################
 # Beginning of procedural version of gmm routines
-def gj(b,data):
-    """Observations of g_j(b).
 
-    This defines the deviations from the predictions of our model; i.e.,
-    e_j = Z_ju_j, where EZ_ju_j=0 for *each observation*.
-
-    Returns an Nxl matrix (observations x moment conditions).
-
-    Can replace this function to 'testimate' a different model.
-
-    If passed value of b is a scalar expand to make a k-vector.
-    """
-    y,X,Z = data
-
-    # Construct vector of identical parameter if b a scalar.
-    if np.isscalar(b): b = np.array([b]*X.shape[1]).reshape((-1,1))
-
-    return Z*(y - X*b)
-
-def gN(b,data):
+def gN(b):
     """Averages of g_j(b).
 
     This is generic for data, to be passed to gj.
     """
-    e = gj(b,data)
+    e = gj(b)
 
+    gN.N,gN.k = e.shape
+    gN.N = e.count()  # Allows for possibility of missing data
     # Check to see more obs. than moments.
-    assert e.shape[0] > e.shape[1]
+    assert np.all(gN.N > gN.k), "More moments than observations"
 
     try:
         return e.mean(axis=0).reshape((-1,1))
     except AttributeError:
         return e.mean(axis=0)
 
-def Omegahat(b,data):
-    e = gj(b,data)
+def Omegahat(b):
+    e = gj(b)
 
     # Recenter! We have Eu=0 under null.
     # Important to use this information.
     e = e - e.mean(axis=0)
+    sqrtN = np.sqrt(e.count())
 
-    return e.T@e/e.shape[0]
+    e = e/sqrtN
 
-def J(b,W,data):
+    ete = matrix_product(e.T,e)
 
-    m = gN(b,data) # Sample moments @ b
-    N = data[0].shape[0]
+    return ete
 
-    return (N*m.T@W@m).squeeze() # Scale by sample size
+def J(b,W):
+
+    m = gN(b) # Sample moments @ b
+
+    #Pdb().set_trace()
+
+    # Scaling by diag(N) allows us to deal with missing values
+    WN = pd.DataFrame(matrix_product(diag(gN.N),W))
+
+    crit = (m.T@WN@m).squeeze()
+    assert crit > 0
+
+    return crit
 
 def minimize(f,b_init=None):
     if b_init is None:
@@ -190,44 +226,173 @@ def minimize(f,b_init=None):
     else:
         return scipy_min(f,b_init).x
 
-def one_step_gmm(data,W=None,b_init=None):
+def one_step_gmm(W=None,b_init=None):
 
     if b_init is None:
         b_init = 0
 
     if W is None:
-        W = np.eye(gj(b_init,data).shape[1])
+        e = gj(b_init)
+        W = pd.DataFrame(np.eye(e.shape[1]),index=e.columns,columns=e.columns)
 
-    b = minimize(lambda b: J(b,W,data),b_init=b_init)
+    assert np.linalg.matrix_rank(W)==W.shape[0]
 
-    return b, J(b,W,data)
+    b = minimize(lambda b: J(b,W),b_init=b_init)
 
-def two_step_gmm(data,b_init=None):
+    return b, J(b,W)
+
+def two_step_gmm(b_init=None):
 
     # First step uses identity weighting matrix
-    b1 = one_step_gmm(data,b_init=b_init)[0]
+    b1 = one_step_gmm(b_init=b_init)[0]
 
     # Construct 2nd step weighting matrix using
     # first step estimate of beta
-    W2 = inv(Omegahat(b1,data))
+    W2 = utils.inv(Omegahat(b1))
 
-    return one_step_gmm(data,W=W2,b_init=b1)
+    return one_step_gmm(W=W2,b_init=b1)
 
-def continuously_updated_gmm(data,b_init=None):
+def continuously_updated_gmm(b_init=None):
 
     # First step uses identity weighting matrix
-    W = lambda b: np.linalg.inv(Omegahat(b,data))
+    W = lambda b: utils.inv(Omegahat(b))
 
-    bhat = minimize(lambda b: J(b,W(b),data),b_init=b_init)
+    bhat = minimize(lambda b: J(b,utils.inv(Omegahat(b))),b_init=b_init)
 
-    return bhat, J(bhat,W(bhat),data)
+    return bhat, J(bhat,W(bhat))
 
+def Jay(b):
+
+    W = lambda b: utils.inv(Omegahat(b))
+    g = lambda b: gN(b)
+
+    return g(b).T@W(b)@g(b)
+
+def Vb(b):
+    """Covariance of estimator of b.
+
+    Note that one must supply gmm.dgN, the average gradient of gmm.gj at b.
+    """
+    Q = dgN(b)
+    W = pd.DataFrame(matrix_product(diag(gN.N),Omegahat(b)))
+
+    return utils.inv(Q.T@utils.inv(W)@Q)
 
 def print_version():
     print(__version__)
 
 # End of procedural version of gmm routines
 ######################################################
+#+end_src
+*** GMM Test
+#+begin_src python :tangle metrics_miscellany/test/test_gmm.py
+import pandas as pd
+import numpy as np
+from metrics_miscellany.estimators import gmm
+from numpy.linalg import inv
+from scipy.stats import distributions as iid
+
+def dgp(N,beta,gamma,sigma_u,VXZ):
+    """Generate a tuple of (y,X,Z).
+
+    Satisfies model:
+        y = X@beta + u
+        E Z'u = 0
+        Var(u) = sigma^2
+        Cov(X,u) = gamma*sigma_u^2
+        Var([X,Z]|u) = VXZ
+        u,X,Z mean zero, Gaussian
+
+    Each element of the tuple is an array of N observations.
+
+    Inputs include
+    - beta :: the coefficient of interest
+    - gamma :: linear effect of disturbance on X
+    - sigma_u :: Variance of disturbance
+    - VXZ :: Var([X,Z]|u)
+    """
+
+    u = pd.Series(iid.norm.rvs(size=(N,))*sigma_u)
+
+    # "Square root" of VXZ via eigendecomposition
+    lbda,v = np.linalg.eig(VXZ)
+    SXZ = v@np.diag(np.sqrt(lbda))
+
+    # Generate normal random variates [X*,Z]
+    XZ = pd.DataFrame(iid.norm.rvs(size=(N,VXZ.shape[0]))@SXZ.T)
+
+    # But X is endogenous...
+    X = XZ.loc[:,0].add(gamma*u,axis=0)
+    Z = XZ.loc[:,1:]
+
+    # Calculate y
+    y = X*beta + u
+
+    return y,X,Z
+
+def test_gmm(N=10000):
+
+    ## Play with us!
+    beta = 1     # "Coefficient of interest"
+    gamma = 1    # Governs effect of u on X
+    sigma_u = 1  # Note assumption of homoskedasticity
+    ## Play with us!
+
+    # Let Z have order ell, and X order 1, with Var([X,Z]|u)=VXZ
+
+    ell = 4 # Play with me too!
+
+    # Arbitrary (but deterministic) choice for VXZ = [VX Cov(X,Z);
+    #                                                 Cov(Z,X) VZ]
+    # Pinned down by choice of a matrix A...
+    A = np.sqrt(1/np.arange(1,(ell+1)**2+1)).reshape((ell+1,ell+1))
+
+    ## Below here we're less playful.
+
+    # Now Var([X,Z]|u) is constructed so guaranteed pos. def.
+    VXZ = A.T@A
+
+    Q = -VXZ[1:,[0]]  # -EZX', or generally Edgj/db'
+
+    # Gimme some truth:
+    truth = (beta,gamma,sigma_u,VXZ)
+
+    ## But play with Omega if you want to introduce heteroskedascity
+    Omega = (sigma_u**2)*VXZ[1:,1:] # E(Zu)(u'Z')
+
+    # Asymptotic variance of optimally weighted GMM estimator:
+    AVar_b = inv(Q.T@inv(Omega)@Q)
+
+    data = dgp(N,*truth)
+
+    def gj(b):
+        y,X,Z = data
+        e = (y.squeeze()-b*X.squeeze())
+
+        Ze = Z.multiply(e,axis=0)
+
+        return Ze
+
+    def dgN(b):
+        y,X,Z = data
+        return Z.T@X
+
+    gmm.gj = gj
+    gmm.dgN = dgN
+
+    b,J = gmm.two_step_gmm()
+
+    assert (b-beta)**2 < 0.01, f"Estimate {b} outside tolerance."
+
+    print(b,J)
+    print(gmm.Vb(b))
+
+    return J
+
+if __name__ == '__main__':
+    J = []
+    for i in range(1000): J.append(test_gmm())
+
 #+end_src
 ** GMM Class
 #+begin_src python :tangle metrics_miscellany/GMM_class.py
