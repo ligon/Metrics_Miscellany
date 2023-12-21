@@ -12,6 +12,7 @@ from . GMM_class import GMM
 from . import utils
 #+end_src
 ** Utils
+*** Unary Matrix Operators
 #+begin_src python :tangle metrics_miscellany/utils.py
 import numpy as np
 from scipy import sparse
@@ -23,11 +24,6 @@ def inv(A):
 
     B = np.linalg.inv(A)
     return pd.DataFrame(B,columns=A.columns,index=A.index)
-
-def matrix_product(X,Y):
-    """Compute matrix product X@Y, allowing for possibility of missing data."""
-
-    return X.fillna(0)@Y.fillna(0)
 
 def diag(X):
 
@@ -43,10 +39,153 @@ def diag(X):
 
     return d
 
+
+#+end_src
+*** Binary Matrix Products
+#+begin_src python :tangle metrics_miscellany/utils.py
 def outer(S,T):
     """Outer product of two series (vectors) S & T.
     """
     return pd.DataFrame(np.outer(S,T),index=S.index,columns=T.index)
+
+def matrix_product(X,Y):
+    """Compute matrix product X@Y, allowing for possibility of missing data."""
+
+    return X.fillna(0)@Y.fillna(0)
+
+def self_inner(X,min_obs=None):
+    """Compute inner product X.T@X, allowing for possibility of missing data."""
+    n,m=X.shape
+
+    if n<m:
+        axis=1
+        N=m
+    else:
+        axis=0
+        N=n
+
+    xbar=X.mean(axis=axis)
+
+    if axis:
+        C=(N-1)*X.T.cov(min_periods=min_obs)
+    else:
+        C=(N-1)*X.cov(min_periods=min_obs)
+
+    return C + N*np.outer(xbar,xbar)
+
+#+end_src
+*** Matrix Decompositions
+#+begin_src python :tangle metrics_miscellany/utils.py
+def heteropca(C,r=1,max_its=50,tol=1e-3,verbose=False):
+    """Estimate r factors and factor weights of covariance matrix C."""
+    from scipy.spatial import procrustes
+
+    N = C - np.diag(np.diag(C))
+
+    ulast = np.zeros((N.shape[1],r))
+    u = np.zeros((N.shape[1],r))
+    u[0,0] = 1
+    ulast[-1,0] = 1
+
+    t = 0
+
+    while procrustes(u,ulast)[-1] >tol and t<max_its:
+        ulast = u
+
+        u,s,vt = np.linalg.svd(N,full_matrices=False,hermitian=True)
+
+        s = s[:r]
+        u = u[:,:r]
+
+        Ntilde = u[:,:r]@np.diag(s[:r])@vt[:r,:]
+
+        N = N - np.diag(np.diag(N)) + np.diag(np.diag(Ntilde))
+
+        t += 1
+
+        if t==max_its:
+            warnings.warn("Exceeded maximum iterations (%d)" % max_its)
+        if verbose: print(f"Iteration {t}, u[0,:r]={u[0,:r]}.")
+
+    return u,s
+
+def svd_missing(A,max_rank=None,min_obs=None,heteroskedastic=False,verbose=False):
+    """Singular Value Decomposition with missing values
+
+    Returns matrices U,S,V.T, where A~=U*S*V.T.
+
+    Inputs:
+        - A :: matrix or pd.DataFrame, with NaNs for missing data.
+
+        - max_rank :: Truncates the rank of the representation.  Note
+                      that this impacts which rows of V will be
+                      computed; each row must have at least max_rank
+                      non-missing values.  If not supplied rank may be
+                      truncated using the Kaiser criterion.
+
+        - min_obs :: Smallest number of non-missing observations for a
+                     row of U to be computed.
+
+        - heteroskedastic :: If true, use the "heteroPCA" algorithm
+                       developed by Zhang-Cai-Wu (2018) which offers a
+                       correction to the svd in the case of
+                       heteroskedastic errors.  If supplied as a pair,
+                       heteroskedastic[0] gives a maximum number of
+                       iterations, while heteroskedastic[1] gives a
+                       tolerance for convergence of the algorithm.
+
+    Ethan Ligon                                        September 2021
+
+    """
+    # Defaults; modify by passing a tuple to heteroskedastic argument.
+    max_its=50
+    tol = 1e-3
+
+    P = self_inner(A,min_obs=min_obs) # P = A.T@A
+
+    sigmas,u=np.linalg.eigh(P)
+
+    order=np.argsort(-sigmas)
+    sigmas=sigmas[order]
+
+    # Truncate rank of representation using Kaiser criterion (positive eigenvalues)
+    u=u[:,order]
+    u=u[:,sigmas>0]
+    s=np.sqrt(sigmas[sigmas>0])
+
+    if max_rank is not None and len(s) > max_rank:
+        u=u[:,:max_rank]
+        s=s[:max_rank]
+
+    r=len(s)
+
+    if heteroskedastic: # Interpret tuple
+        try:
+            max_its,tol = heteroskedastic
+        except TypeError:
+            pass
+        Pbar = P.mean()
+        u,s = heteropca(P-Pbar,r=r,max_its=max_its,tol=tol,verbose=verbose)
+
+    if A.shape[0]==A.shape[1]: # Symmetric; v=u
+        return u,s,u.T
+    else:
+        us=u@np.diag(s)
+
+        v=np.zeros((len(s),A.shape[1]))
+        for j in range(A.shape[1]):
+            a=A.iloc[:,j].values.reshape((-1,1))
+            x=np.nonzero(~np.isnan(a))[0] # non-missing elements of vector a
+            if len(x)>=r:
+                v[:,j]=(np.linalg.pinv(us[x,:])@a[x]).reshape(-1)
+            else:
+                v[:,j]=np.nan
+
+    s = pd.Series(s)
+    u = pd.DataFrame(u,index=A.index)
+    v = pd.DataFrame(v,columns=A.columns)
+
+    return u,s,v
 #+end_src
 ** OLS
 #+begin_src python :tangle metrics_miscellany/estimators.py
@@ -154,6 +293,12 @@ def tsls(X,y,Z):
     return b,V
 
 #+end_src
+** Factor Regression
+We're interested here in multivariate regressions of the form
+\[
+     Y = BX + \Lambda F + U
+\]
+where $Y$ and $U$ are $k\times 1$, $X$ is $\ell\times 1$, $B$ is $k\times\ell$, $F$ is $r\times 1$, and \Lambda is $k\times r$.  Only $(Y,X)$ are observed; $F$ is a collection of latent "factors."  The identifying assumptions are that $U$ is orthogonal to $(X,F)$ and $\E FF^\T = I$.  [cite/t:@hansen20:econometrics] describes an iterative approach to estimation, which we implement below.
 * GMM
 ** Procedural interface for GMM estimator.
 #+begin_src python :tangle metrics_miscellany/gmm.py
