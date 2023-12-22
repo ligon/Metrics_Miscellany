@@ -143,18 +143,18 @@ def svd_missing(A,max_rank=None,min_obs=None,heteroskedastic=False,verbose=False
 
     P = self_inner(A,min_obs=min_obs) # P = A.T@A
 
-    sigmas,u=np.linalg.eigh(P)
+    sigmas,v=np.linalg.eigh(P)
 
     order=np.argsort(-sigmas)
     sigmas=sigmas[order]
 
     # Truncate rank of representation using Kaiser criterion (positive eigenvalues)
-    u=u[:,order]
-    u=u[:,sigmas>0]
+    v=v[:,order]
+    v=v[:,sigmas>0]
     s=np.sqrt(sigmas[sigmas>0])
 
     if max_rank is not None and len(s) > max_rank:
-        u=u[:,:max_rank]
+        v=v[:,:max_rank]
         s=s[:max_rank]
 
     r=len(s)
@@ -165,25 +165,25 @@ def svd_missing(A,max_rank=None,min_obs=None,heteroskedastic=False,verbose=False
         except TypeError:
             pass
         Pbar = P.mean()
-        u,s = heteropca(P-Pbar,r=r,max_its=max_its,tol=tol,verbose=verbose)
+        v,s = heteropca(P-Pbar,r=r,max_its=max_its,tol=tol,verbose=verbose)
 
     if A.shape[0]==A.shape[1]: # Symmetric; v=u
-        return u,s,u.T
+        return v,s,v.T
     else:
-        us=u@np.diag(s)
+        vs=v@np.diag(s)
 
-        v=np.zeros((len(s),A.shape[1]))
-        for j in range(A.shape[1]):
-            a=A.iloc[:,j].values.reshape((-1,1))
+        u=np.zeros((A.shape[0],len(s)))
+        for j in range(A.shape[0]):
+            a=A.iloc[j,:].values.reshape((-1,1))
             x=np.nonzero(~np.isnan(a))[0] # non-missing elements of vector a
             if len(x)>=r:
-                v[:,j]=(np.linalg.pinv(us[x,:])@a[x]).reshape(-1)
+                u[j,:]=(np.linalg.pinv(vs[x,:])@a[x]).reshape(-1)
             else:
-                v[:,j]=np.nan
+                u[j,:]=np.nan
 
     s = pd.Series(s)
     u = pd.DataFrame(u,index=A.index)
-    v = pd.DataFrame(v,columns=A.columns)
+    v = pd.DataFrame(v,index=A.columns)
 
     return u,s,v
 #+end_src
@@ -296,9 +296,111 @@ def tsls(X,y,Z):
 ** Factor Regression
 We're interested here in multivariate regressions of the form
 \[
-     Y = BX + \Lambda F + U
+     Y = XB + F\Lambda + U
 \]
-where $Y$ and $U$ are $k\times 1$, $X$ is $\ell\times 1$, $B$ is $k\times\ell$, $F$ is $r\times 1$, and \Lambda is $k\times r$.  Only $(Y,X)$ are observed; $F$ is a collection of latent "factors."  The identifying assumptions are that $U$ is orthogonal to $(X,F)$ and $\E FF^\T = I$.  [cite/t:@hansen20:econometrics] describes an iterative approach to estimation, which we implement below.
+where $Y$ and $U$ are $N\times k$, $X$ is $n\times \ell$, $B$ is $\ell\times k$, $F$ is $N\times r$, and \Lambda is $r\times k$.  Only $(Y,X)$ are observed; $F$ is a collection of latent "factors."  The identifying assumptions are that $U$ is orthogonal to $(X,F)$ and $\E F_iF_i^\T = I_r$.  [cite/t:@hansen20:econometrics] describes an iterative approach to estimation, which we implement below.
+#+begin_src python :tangle metrics_miscellany/estimators.py
+def factor_regression(Y,X,F=None,rank=1,tol=1e-3):
+
+    if rank>1:
+        raise NotImplementedError("Factor regression for rank>1 is not reliable.")
+
+    N,k = Y.shape
+    def ols(X,Y):
+        N,k = Y.shape
+        XX = utils.self_inner(X)/N
+        XY = utils.matrix_product(X.T,Y)/N
+        B = np.linalg.lstsq(XX,XY,rcond=None)[0]
+        return pd.DataFrame(B,index=X.columns,columns=Y.columns)
+
+    if F is None:
+        B = ols(X,Y)
+        F = 0
+    else:
+        parms = ols(pd.concat([X,F],axis=1),Y)
+        L = parms.iloc[-rank:,:]
+        B = parms.iloc[:-rank,:]
+
+    lastF = F
+    F,s,vt = utils.svd_missing(Y - utils.matrix_product(X,B),max_rank=rank)
+    scale = F.std()
+    F = F.multiply(1/scale)
+
+    if np.linalg.norm(F-lastF)>tol:
+        B,L,F = factor_regression(Y,X,F=F,rank=rank,tol=tol)
+
+    return B,L,F
+
+
+#+end_src
+*** Factor Regression Test
+#+begin_src python :tangle metrics_miscellany/test/test_factor_regression.py
+import pandas as pd
+from scipy import stats
+from metrics_miscellany.estimators import factor_regression
+from metrics_miscellany import utils
+import numpy as np
+
+def generate_multivariate_normal(N,k,V=None,colidx='a'):
+
+    try:
+        a = ord(colidx)
+        labels = list(map(chr, range(a, a+k)))
+    except TypeError:
+        labels = range(colidx,colidx+k)
+
+    if V is None:
+        D = pd.DataFrame(np.random.randn(k,k),index=labels,columns=labels)
+        V = D.T@D
+    else:
+        V = pd.DataFrame(V,index=labels,columns=labels)
+
+    X = pd.DataFrame(stats.multivariate_normal(cov=V).rvs(N),columns=labels)
+
+    return X
+
+def main(N,k,l,r):
+
+    U = generate_multivariate_normal(N,k,V=np.eye(k),colidx='A')/100
+
+    X = generate_multivariate_normal(N,l)
+
+    a = ord('a')
+    A = ord('A')
+    rlabels = list(map(chr, range(a, a+l)))
+    clabels = list(map(chr, range(A, A+k)))
+    B = pd.DataFrame(np.arange(1,l*k+1).reshape(l,k),index=rlabels,columns=clabels)
+
+    F = generate_multivariate_normal(N,r,colidx=0)
+    F = F - F.mean()
+    scale = F.std()
+    F = F.multiply(1/scale)
+
+    L = pd.DataFrame(np.arange(1,k*r+1).reshape(r,k)/10,index=F.columns,columns=U.columns)
+    L = L.multiply(scale,axis=0)
+
+    Y = utils.matrix_product(X,B) + utils.matrix_product(F,L) + U
+
+    return Y,X,F,B,L,U
+
+def test_factor_regression(N=1000,k=10,l=2,r=1):
+    Y,X,F0,B0,L0,U0 = main(N,k,l,r)
+    X['Constant'] = 1
+
+    B,L,F = factor_regression(Y,X,rank=r)
+
+    assert np.linalg.norm(F0-F) < np.linalg.norm(F0)
+
+    assert np.all(Y.var()>(Y-X@B).var())
+
+    assert np.all((Y-X@B).var()>(Y-X@B-F@L).var())
+
+    assert np.linalg.norm((B0-B).dropna())/np.linalg.norm(B0) < 0.01
+
+if __name__ == '__main__':
+    test_factor_regression(N=10000,r=1)
+ #+end_src
+
 * GMM
 ** Procedural interface for GMM estimator.
 #+begin_src python :tangle metrics_miscellany/gmm.py
@@ -682,7 +784,7 @@ def chi2_test(b,V,var_selection=None,R=None,TEST=False):
 #+end_src
 
 *** Test of chi2_test
- #+begin_src python :tangle metrics_miscellany/test/test_chi2_test.py
+#+begin_src python :tangle metrics_miscellany/test/test_chi2_test.py
 import pandas as pd
 from scipy import stats
 from metrics_miscellany import tests
