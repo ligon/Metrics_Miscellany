@@ -297,7 +297,7 @@ if __name__=='__main__':
 #+end_src
 ** Two-stage Least Squares
 #+begin_src python :tangle metrics_miscellany/estimators.py
-from metrics_miscellany.utils import matrix_product
+from metrics_miscellany import DataMat
 
 def tsls(X,y,Z,return_Omega=False):
     """
@@ -336,27 +336,26 @@ def linear_gmm(X,y,Z,W=None):
 
     if W is None: # Use 2sls to get initial estimate of W
         b1,Omega1 = tsls(X,y,Z,return_Omega=True)
+        W = Omega.inv
 
     n,k = X.shape
 
     Qxz = X.T@Z/n
-    W = utils.inv(Omega)
 
-    b = lstsq(Qxz@W@Qxz.T,Qxz@Omega@Z.T@y/n,rcond=None)[0]
+    b = lstsq(Qxz@W@Qxz.T,Qxz@W@Z.T@y/n,rcond=None)[0]
 
     b = pd.Series(b.squeeze(),index=X.columns)
 
     # Cov matrix
     e = y.squeeze() - X@b
 
-    Omega =  pd.DataFrame(Z.T.values@np.diag(e**2)@Z.values/n,columns=Z.columns,index=Z.columns)
+    Omega = Z.T@diag(e**2)@Z/n #pd.DataFrame(Z.T.values@np.diag(e**2)@Z.values/n,columns=Z.columns,index=Z.columns)
     #Omega = pd.DataFrame(e.var()*Z.T.values@Z.values/n,columns=Z.columns,index=Z.columns)
 
 
-    A = utils.inv(Qxz@zzinv@Qxz.T)
-    V = A@(Qxz@zzinv@Omega@zzinv@Qxz.T)@A.T/n
+    Vb = (Qxz@Omega.inv@Qxz.T).inv/n
 
-    return b,V
+    return b,Vb
 
 #+end_src
 
