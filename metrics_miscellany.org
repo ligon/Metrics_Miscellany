@@ -187,6 +187,37 @@ def svd_missing(A,max_rank=None,min_obs=None,heteroskedastic=False,verbose=False
 
     return u,s,v
 #+end_src
+** DataMat
+#+begin_src python :tangle metrics_miscellany/datamat.py
+import pandas as pd
+from metrics_miscellany.utils import matrix_product
+from metrics_miscellany.utils import inv as matrix_inv
+from functools import cached_property
+
+class DataVec(pd.Series):
+    @property
+    def _constructor(self):
+        return DataVec
+
+    @property
+    def _constructor_expanddim(self):
+        return DataMat
+
+class DataMat(pd.DataFrame):
+    @property
+    def _constructor(self):
+        return DataMat
+    
+    @property
+    def _constructor_sliced(self):
+        return DataVec
+
+    __mul__ = matrix_product
+
+    @cached_property
+    def inv(self):
+        return matrix_inv(self)
+#+end_src
 ** OLS
 #+begin_src python :tangle metrics_miscellany/estimators.py
 
@@ -266,14 +297,16 @@ if __name__=='__main__':
 #+end_src
 ** Two-stage Least Squares
 #+begin_src python :tangle metrics_miscellany/estimators.py
-def tsls(X,y,Z):
+from metrics_miscellany.utils import matrix_product
+
+def tsls(X,y,Z,return_Omega=False):
     """
     Two-stage least squares estimator.
     """
 
     n,k = X.shape
 
-    Qxz = X.T@Z/n
+    Qxz = matrix_product(X.T,Z)/n
 
     zzinv = utils.inv(Z.T@Z/n)
     b = lstsq(Qxz@zzinv@Qxz.T,Qxz@zzinv@Z.T@y/n,rcond=None)[0]
@@ -286,6 +319,39 @@ def tsls(X,y,Z):
     Omega = pd.DataFrame(Z.T.values@np.diag(e**2)@Z.values/n,columns=Z.columns,index=Z.columns)
     #Omega = pd.DataFrame(e.var()*Z.T.values@Z.values/n,columns=Z.columns,index=Z.columns)
 
+    if return_Omega:
+        return b,Omega
+    else:
+        A = utils.inv(Qxz@zzinv@Qxz.T)
+        V = A@(Qxz@zzinv@Omega@zzinv@Qxz.T)@A.T/n
+        return b,V
+
+#+end_src
+** Linear GMM
+#+begin_src python :tangle metrics_miscellany/estimators.py
+def linear_gmm(X,y,Z,W=None):
+    """
+    Linear GMM estimator.
+    """
+
+    if W is None: # Use 2sls to get initial estimate of W
+        b1,Omega1 = tsls(X,y,Z,return_Omega=True)
+
+    n,k = X.shape
+
+    Qxz = X.T@Z/n
+    W = utils.inv(Omega)
+
+    b = lstsq(Qxz@W@Qxz.T,Qxz@Omega@Z.T@y/n,rcond=None)[0]
+
+    b = pd.Series(b.squeeze(),index=X.columns)
+
+    # Cov matrix
+    e = y.squeeze() - X@b
+
+    Omega =  pd.DataFrame(Z.T.values@np.diag(e**2)@Z.values/n,columns=Z.columns,index=Z.columns)
+    #Omega = pd.DataFrame(e.var()*Z.T.values@Z.values/n,columns=Z.columns,index=Z.columns)
+
 
     A = utils.inv(Qxz@zzinv@Qxz.T)
     V = A@(Qxz@zzinv@Omega@zzinv@Qxz.T)@A.T/n
@@ -293,6 +359,7 @@ def tsls(X,y,Z):
     return b,V
 
 #+end_src
+
 ** Factor Regression
 We're interested here in multivariate regressions of the form
 \[
@@ -507,6 +574,7 @@ def continuously_updated_gmm(b_init=None):
     bhat = minimize(lambda b: J(b,utils.inv(Omegahat(b))),b_init=b_init)
 
     return bhat, J(bhat,W(bhat))
+
 
 def Jay(b):
 
