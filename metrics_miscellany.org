@@ -1,18 +1,5 @@
-* Estimators
-** Preliminaries
-#+begin_src python :tangle metrics_miscellany/estimators.py
-import statsmodels.api as sm
-from statsmodels.stats import correlation_tools
-import numpy as np
-from numpy.linalg import lstsq
-import warnings
-import pandas as pd
-from . import gmm
-from . GMM_class import GMM
-from . import utils
-#+end_src
-** Utils
-*** Unary Matrix Operators
+* Utils
+** Unary Matrix Operators
 #+begin_src python :tangle metrics_miscellany/utils.py
 import numpy as np
 from scipy import sparse
@@ -25,15 +12,27 @@ def inv(A):
     B = np.linalg.inv(A)
     return pd.DataFrame(B,columns=A.columns,index=A.index)
 
-def diag(X):
+def pinv(A):
+    """Moore-Penrose pseudo-inverse of A.
+    """
+    if np.isscalar(A): A = pd.DataFrame(np.array([[A]]))
+
+    B = np.linalg.pinv(A)
+    return pd.DataFrame(B,columns=A.index,index=A.columns)
+
+
+def diag(X,sparse=True):
 
     try:
         assert X.shape[0] == X.shape[1]
         d = pd.Series(np.diag(X),index=X.index)
     except IndexError: # X is a series?
-        # We can wind up blowing ram if not careful...
-        d = sparse.diags(X.values)
-        d = pd.DataFrame.sparse.from_spmatrix(d,index=X.index,columns=X.index)
+        if sparse:
+            # We can wind up blowing ram if not careful...
+            d = sparse.diags(X.values)
+            d = pd.DataFrame.sparse.from_spmatrix(d,index=X.index,columns=X.index)
+        else:
+            raise NotImplementedError
     except AttributeError: # Not a pandas object?
         d = np.diag(X)
 
@@ -41,7 +40,7 @@ def diag(X):
 
 
 #+end_src
-*** Binary Matrix Products
+** Binary Matrix Products
 #+begin_src python :tangle metrics_miscellany/utils.py
 def outer(S,T):
     """Outer product of two series (vectors) S & T.
@@ -51,7 +50,7 @@ def outer(S,T):
 def matrix_product(X,Y):
     """Compute matrix product X@Y, allowing for possibility of missing data."""
 
-    return X.fillna(0)@Y.fillna(0)
+    return np.matmul(pd.DataFrame(X).fillna(0),pd.DataFrame(Y).fillna(0))
 
 def self_inner(X,min_obs=None):
     """Compute inner product X.T@X, allowing for possibility of missing data."""
@@ -73,8 +72,39 @@ def self_inner(X,min_obs=None):
 
     return C + N*np.outer(xbar,xbar)
 
+def kron(A,B,sparse=False):
+    if sparse: raise NotImplementedError
+
+    a = np.kron(A,B)
+    return pd.DataFrame(a,columns=pd.MultiIndex.from_product([A.columns, B.columns]),
+                        index=pd.MultiIndex.from_product([A.index, B.index]))
+
 #+end_src
-*** Matrix Decompositions
+*** Binary Operation Tests
+#+begin_src python :tangle metrics_miscellany/test/test_binary_ops.py
+import metrics_miscellany.datamat as dm
+import pandas as pd
+import numpy as np
+
+def test_matmul(A,B):
+    C = A@B
+    assert isinstance(C,type(A))
+
+if __name__=='__main__':
+    A = np.array([[1,2],[3,4]])
+    B = np.array([[1,1]]).T
+    Cnp = test_matmul(A,B)
+
+    A = pd.DataFrame([[1,2],[3,4]])
+    B = pd.DataFrame([[1,1]]).T
+    Cpd = test_matmul(A,B)
+
+    A = dm.DataMat([[1,2],[3,4]])
+    B = dm.DataMat([[1,1]]).T
+    Cdm = test_matmul(A,B)
+
+#+end_src
+** Matrix Decompositions
 #+begin_src python :tangle metrics_miscellany/utils.py
 def heteropca(C,r=1,max_its=50,tol=1e-3,verbose=False):
     """Estimate r factors and factor weights of covariance matrix C."""
@@ -187,12 +217,16 @@ def svd_missing(A,max_rank=None,min_obs=None,heteroskedastic=False,verbose=False
 
     return u,s,v
 #+end_src
-** DataMat
+* DataMat
 #+begin_src python :tangle metrics_miscellany/datamat.py
 import pandas as pd
-from metrics_miscellany.utils import matrix_product
+import numpy as np
+from metrics_miscellany.utils import matrix_product, diag
 from metrics_miscellany.utils import inv as matrix_inv
+from metrics_miscellany.utils import pinv as matrix_pinv
+import metrics_miscellany.utils as utils
 from functools import cached_property
+from scipy import sparse as scipy_sparse
 
 class DataVec(pd.Series):
     @property
@@ -203,20 +237,69 @@ class DataVec(pd.Series):
     def _constructor_expanddim(self):
         return DataMat
 
+    def dg(self,sparse=True):
+        """Return"""
+        if sparse:
+            # We can wind up blowing ram if not careful...
+            d = scipy_sparse.diags(self.values)
+            return DataMat(pd.DataFrame.sparse.from_spmatrix(d,index=self.index,columns=self.index))
+        else:
+            return DataMat(np.diag(self.values),index=self.index,columns=self.index)
+
 class DataMat(pd.DataFrame):
     @property
     def _constructor(self):
         return DataMat
-    
+
     @property
     def _constructor_sliced(self):
         return DataVec
 
-    __mul__ = matrix_product
-
+    # Unary operations
     @cached_property
     def inv(self):
         return matrix_inv(self)
+
+    @property
+    def dg(self):
+        """Extract diagonal from square matrix.
+
+        >>> dg([[1,2][3,4]])
+        [1,4]
+        """
+        assert np.all(self.index==self.columns), "Should have columns same as index."
+        return DataVec(np.diag(self.values),index=self.index)
+
+    def pinv(self):
+        """Moore-Penrose pseudo-inverse."""
+        return matrix_pinv(self)
+
+    def matmul(self,other):
+        Y = matrix_product(self,other)
+        return DataMat(Y)
+
+    def kron(self,other,sparse=False):
+        return utils.kron(self,other,sparse=sparse)
+
+
+if __name__ == "__main__":
+    import doctest
+    doctest.testmod()
+#+end_src
+
+* Estimators
+** Preliminaries
+#+begin_src python :tangle metrics_miscellany/estimators.py
+import statsmodels.api as sm
+from statsmodels.stats import correlation_tools
+import numpy as np
+from numpy.linalg import lstsq
+import warnings
+import pandas as pd
+from . import gmm
+from . GMM_class import GMM
+from . import utils
+from .datamat import DataMat, DataVec
 #+end_src
 ** OLS
 #+begin_src python :tangle metrics_miscellany/estimators.py
@@ -286,7 +369,6 @@ def test_ols(N=500000,tol=1e-2):
     u = pd.DataFrame(np.random.standard_normal((N,))/10)
 
     y = (x@beta).values + u.values
-
     b,V = ols(x,y)
 
     assert np.allclose(b,beta,atol=tol)
@@ -297,8 +379,6 @@ if __name__=='__main__':
 #+end_src
 ** Two-stage Least Squares
 #+begin_src python :tangle metrics_miscellany/estimators.py
-from metrics_miscellany import DataMat
-
 def tsls(X,y,Z,return_Omega=False):
     """
     Two-stage least squares estimator.
@@ -306,7 +386,7 @@ def tsls(X,y,Z,return_Omega=False):
 
     n,k = X.shape
 
-    Qxz = matrix_product(X.T,Z)/n
+    Qxz = X.T@Z/n
 
     zzinv = utils.inv(Z.T@Z/n)
     b = lstsq(Qxz@zzinv@Qxz.T,Qxz@zzinv@Z.T@y/n,rcond=None)[0]
@@ -316,17 +396,51 @@ def tsls(X,y,Z,return_Omega=False):
     # Cov matrix
     e = y.squeeze() - X@b
 
-    Omega = pd.DataFrame(Z.T.values@np.diag(e**2)@Z.values/n,columns=Z.columns,index=Z.columns)
+    #Omega = Z.T@(e**2).dg()@Z/n
+    # Rather than forming even a sparse nxn matrix, just use element-by-element multiplication
+    ZTe = Z.T.multiply(e)
+    Omega = ZTe@ZTe.T/n
+
     #Omega = pd.DataFrame(e.var()*Z.T.values@Z.values/n,columns=Z.columns,index=Z.columns)
 
     if return_Omega:
         return b,Omega
     else:
-        A = utils.inv(Qxz@zzinv@Qxz.T)
+        A = (Qxz@zzinv@Qxz.T).inv
         V = A@(Qxz@zzinv@Omega@zzinv@Qxz.T)@A.T/n
         return b,V
 
 #+end_src
+*** TSLS Tests
+#+begin_src python :tangle metrics_miscellany/test/test_tsls.py
+import pandas as pd
+from metrics_miscellany.estimators import tsls, ols
+from metrics_miscellany.datamat import DataMat, DataVec
+import numpy as np
+
+def test_tsls(N=500000,tol=1e-2):
+
+    z = DataMat({'z':np.random.standard_normal((N,))})
+    u = DataVec(np.random.standard_normal((N,)))
+    x = DataMat({'x':z.squeeze() + u})
+
+    x['Constant'] = 1
+    z['Constant'] = 1
+
+    beta = DataMat({'Coefficients':[1,0]},index=['x','Constant'])
+
+    y = (x@beta).squeeze() + u
+
+    #b,V = tsls(x,y,z)
+    b,V = ols(x,y)
+
+    assert np.allclose(b,beta.squeeze(),atol=tol)
+
+if __name__=='__main__':
+    test_tsls()
+
+#+end_src
+
 ** Linear GMM
 #+begin_src python :tangle metrics_miscellany/estimators.py
 def linear_gmm(X,y,Z,W=None):
@@ -336,7 +450,7 @@ def linear_gmm(X,y,Z,W=None):
 
     if W is None: # Use 2sls to get initial estimate of W
         b1,Omega1 = tsls(X,y,Z,return_Omega=True)
-        W = Omega.inv
+        W = Omega1.inv
 
     n,k = X.shape
 
@@ -349,13 +463,44 @@ def linear_gmm(X,y,Z,W=None):
     # Cov matrix
     e = y.squeeze() - X@b
 
-    Omega = Z.T@diag(e**2)@Z/n #pd.DataFrame(Z.T.values@np.diag(e**2)@Z.values/n,columns=Z.columns,index=Z.columns)
-    #Omega = pd.DataFrame(e.var()*Z.T.values@Z.values/n,columns=Z.columns,index=Z.columns)
-
+    #Omega = Z.T@(e**2).dg()@Z/n
+    # Rather than forming even a sparse nxn matrix, just use element-by-element multiplication
+    ZTe = Z.T.multiply(e)
+    Omega = ZTe@ZTe.T/n
 
     Vb = (Qxz@Omega.inv@Qxz.T).inv/n
 
     return b,Vb
+
+#+end_src
+*** Linear GMM Tests
+#+begin_src python :tangle metrics_miscellany/test/test_linear_gmm.py
+import pandas as pd
+from metrics_miscellany.estimators import linear_gmm
+from metrics_miscellany.datamat import DataMat, DataVec
+import numpy as np
+
+def test_linear_gmm(N=500000,tol=1e-2):
+
+    z = DataMat(np.random.standard_normal((N,2)),columns=['z1','z2'])
+    u = DataVec(np.random.standard_normal((N,)))
+    x = DataMat({'x':z.sum(axis=1) + u})
+
+    x['Constant'] = 1
+    z['Constant'] = 1
+
+    beta = DataMat({'Coefficients':[1,0]},index=['x','Constant'])
+
+    y = (x@beta).squeeze() + u
+
+    b,V = linear_gmm(x,y,z)
+
+    assert np.allclose(b,beta.squeeze(),atol=tol)
+
+    return b,V
+
+if __name__=='__main__':
+    b,V = test_linear_gmm()
 
 #+end_src
 
