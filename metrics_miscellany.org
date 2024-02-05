@@ -49,8 +49,16 @@ def outer(S,T):
 
 def matrix_product(X,Y):
     """Compute matrix product X@Y, allowing for possibility of missing data."""
+    assert all(X.columns==Y.index), "Columns and Indices don't match."
 
-    return np.matmul(pd.DataFrame(X).fillna(0),pd.DataFrame(Y).fillna(0))
+    X = pd.DataFrame(X).fillna(0)
+
+    if len(Y.shape)==1 or Y.shape[1]==1:
+        Y = pd.Series(Y.squeeze()).fillna(0)
+    else:
+        Y = pd.DataFrame(Y).fillna(0)
+
+    return np.matmul(X,Y)
 
 def self_inner(X,min_obs=None):
     """Compute inner product X.T@X, allowing for possibility of missing data."""
@@ -76,8 +84,8 @@ def kron(A,B,sparse=False):
     if sparse: raise NotImplementedError
 
     a = np.kron(A,B)
-    return pd.DataFrame(a,columns=pd.MultiIndex.from_product([A.columns, B.columns]),
-                        index=pd.MultiIndex.from_product([A.index, B.index]))
+    return pd.DataFrame(a,columns=pd.MultiIndex.from_product([A.columns.tolist(), B.columns.tolist()]),
+                        index=pd.MultiIndex.from_product([A.index.tolist(), B.index.tolist()]))
 
 #+end_src
 *** Binary Operation Tests
@@ -89,6 +97,14 @@ import numpy as np
 def test_matmul(A,B):
     C = A@B
     assert isinstance(C,type(A))
+
+    return C
+
+def test_matmul_matvec(A,b):
+    C = A@b
+    assert isinstance(C,type(b))
+
+    return C
 
 if __name__=='__main__':
     A = np.array([[1,2],[3,4]])
@@ -102,6 +118,9 @@ if __name__=='__main__':
     A = dm.DataMat([[1,2],[3,4]])
     B = dm.DataMat([[1,1]]).T
     Cdm = test_matmul(A,B)
+
+    b = dm.DataVec([1,1])
+    c = test_matmul_matvec(A,b)
 
 #+end_src
 ** Matrix Decompositions
@@ -217,6 +236,41 @@ def svd_missing(A,max_rank=None,min_obs=None,heteroskedastic=False,verbose=False
 
     return u,s,v
 #+end_src
+** DataFrame Manipulations
+#+begin_src python :tangle metrics_miscellany/utils.py
+from cfe.df_utils import use_indices
+from pandas import concat, get_dummies, MultiIndex
+
+def dummies(df,cols,suffix=False):
+    """From a dataframe df, construct an array of indicator (dummy) variables,
+    with a column for every unique row df[cols]. Note that the list cols can
+    include names of levels of multiindices.
+
+    The optional argument =suffix=, if provided as a string, will append suffix
+    to column names of dummy variables. If suffix=True, then the string '_d'
+    will be appended.
+    """
+    idxcols = list(set(df.index.names).intersection(cols))
+    colcols = list(set(cols).difference(idxcols))
+
+    v = concat([use_indices(df,idxcols),df[colcols]],axis=1)
+
+    v['tuple'] = list(zip(*[v[s] for s in idxcols+colcols]))
+
+    v = get_dummies(v['tuple']).astype(int)
+
+    if suffix==True:
+        suffix = '_d'
+
+    if suffix!=False and len(suffix)>0:
+        columns = [tuple([str(c)+suffix for c in t]) for t in v.columns]
+    else:
+        columns = v.columns
+        
+    v.columns = MultiIndex.from_tuples(columns,names=idxcols+colcols)
+
+    return v
+#+end_src
 * DataMat
 #+begin_src python :tangle metrics_miscellany/datamat.py
 import pandas as pd
@@ -229,6 +283,7 @@ from functools import cached_property
 from scipy import sparse as scipy_sparse
 
 class DataVec(pd.Series):
+    __pandas_priority__ = 5000
     @property
     def _constructor(self):
         return DataVec
@@ -247,6 +302,7 @@ class DataVec(pd.Series):
             return DataMat(np.diag(self.values),index=self.index,columns=self.index)
 
 class DataMat(pd.DataFrame):
+    __pandas_priority__ = 6000
     @property
     def _constructor(self):
         return DataMat
@@ -279,7 +335,14 @@ class DataMat(pd.DataFrame):
         return DataMat(Y)
 
     def kron(self,other,sparse=False):
-        return utils.kron(self,other,sparse=sparse)
+        return DataMat(utils.kron(self,other,sparse=sparse))
+
+    # Other transformations
+    def dummies(self,cols,suffix=''):
+        return utils.dummies(self,cols,suffix='')
+
+    def concat(self,other,axis=0):
+        return DataMat(utils.concat([self,other],axis=axis))
 
 
 if __name__ == "__main__":
@@ -443,7 +506,7 @@ if __name__=='__main__':
 
 ** Linear GMM
 #+begin_src python :tangle metrics_miscellany/estimators.py
-def linear_gmm(X,y,Z,W=None):
+def linear_gmm(X,y,Z,W=None,return_Omega=False):
     """
     Linear GMM estimator.
     """
@@ -451,26 +514,29 @@ def linear_gmm(X,y,Z,W=None):
     if W is None: # Use 2sls to get initial estimate of W
         b1,Omega1 = tsls(X,y,Z,return_Omega=True)
         W = Omega1.inv
+        return linear_gmm(X,y,Z,W=W)
+    else:
+        n,k = X.shape
 
-    n,k = X.shape
+        Qxz = X.T@Z/n
 
-    Qxz = X.T@Z/n
+        b = lstsq(Qxz@W@Qxz.T,Qxz@W@Z.T@y/n,rcond=None)[0]
 
-    b = lstsq(Qxz@W@Qxz.T,Qxz@W@Z.T@y/n,rcond=None)[0]
+        b = pd.Series(b.squeeze(),index=X.columns)
 
-    b = pd.Series(b.squeeze(),index=X.columns)
+        # Cov matrix
+        e = y.squeeze() - X@b
 
-    # Cov matrix
-    e = y.squeeze() - X@b
+        #Omega = Z.T@(e**2).dg()@Z/n
+        # Rather than forming even a sparse nxn matrix, just use element-by-element multiplication
+        ZTe = Z.T.multiply(e)
+        Omega = ZTe@ZTe.T/n
 
-    #Omega = Z.T@(e**2).dg()@Z/n
-    # Rather than forming even a sparse nxn matrix, just use element-by-element multiplication
-    ZTe = Z.T.multiply(e)
-    Omega = ZTe@ZTe.T/n
-
-    Vb = (Qxz@Omega.inv@Qxz.T).inv/n
-
-    return b,Vb
+        if return_Omega:
+            return b,Omega
+        else:
+            Vb = (Qxz@Omega.inv@Qxz.T).inv/n
+            return b,Vb
 
 #+end_src
 *** Linear GMM Tests
