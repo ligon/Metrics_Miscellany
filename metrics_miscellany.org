@@ -300,7 +300,7 @@ class DataVec(pd.Series):
         else:
             idxnames = None
 
-        super(DataMat, self).__init__(*args,**kwargs)
+        super(DataVec, self).__init__(*args,**kwargs)
 
         if idxnames is not None:
             if isinstance(idxnames,str):
