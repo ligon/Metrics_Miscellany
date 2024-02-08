@@ -468,7 +468,7 @@ class DataMat(pd.DataFrame):
     def dummies(self,cols,suffix=''):
         return DataMat(utils.dummies(self,cols,suffix=suffix))
 
-    def concat(self,other,axis=0,levelnames=False,suffixer='_',**kwargs):
+    def concat(self,other,axis=0,levelnames=False,toplevelname='v',suffixer='_',**kwargs):
         """Concatenate self and other.
 
         This uses the machinery of pandas.concat, but ensures that when two
@@ -494,20 +494,21 @@ class DataMat(pd.DataFrame):
             levelnames = True
 
         allobjs = []
-        if isinstance(other,tuple):
-            allobjs = [self] + list(other)
-            allnames = [self.name] + get_names(other,assign_missing=assign_missing)
-        elif isinstance(other,(DataMat,DataVec)):
-            allobjs = [self,other]
-            allnames = [self.name] + get_names([other],assign_missing=assign_missing)
-        elif isinstance(other,dict):
-            allobjs = [self] + other.values()
-            allnames = [self.name] + other.keys()
-        elif isinstance(other,list):
-            allobjs = [self]+other
-            allnames = [self.name] + get_names(other,assign_missing=assign_missing)
+        if isinstance(other,dict):
+            allobjs = [self] + list(other.values())
+            allnames = [self.name] + list(other.keys())
         else:
-            raise ValueError("Unexpected type")
+            if isinstance(other,tuple):
+                allobjs = [self] + list(other)
+            elif isinstance(other,(DataMat,DataVec)):
+                allobjs = [self,other]
+                allnames = [self.name] + get_names([other],assign_missing=assign_missing)
+            elif isinstance(other,list):
+                allobjs = [self]+other
+            else:
+                raise ValueError("Unexpected type")
+
+            allnames = get_names(allobjs,assign_missing=assign_missing)
 
         # Have list of all names, but may not be unique.
 
@@ -543,7 +544,7 @@ class DataMat(pd.DataFrame):
         d = dict(zip(unique_names,allobjs))
 
         if levelnames:
-            return utils.concat(d,axis=axis,**kwargs)
+            return utils.concat(d,axis=axis,names=toplevelname,**kwargs)
         else:
             return utils.concat(allobjs,axis=axis,**kwargs)
 #+end_src
@@ -631,12 +632,11 @@ def reconcile_indices(idxs,fillvalue=''):
             idx.levels
         except AttributeError:
             idx = pd.MultiIndex([idx],[range(len(idx))],names=idx.names)
+
         out.append(idx.reorder_levels(names))
 
     return out
                 
-
-
 
 if __name__ == "__main__":
     a = DataVec([1,2],name='a',idxnames='i')
