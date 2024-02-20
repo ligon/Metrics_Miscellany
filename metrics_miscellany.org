@@ -48,8 +48,12 @@ def outer(S,T):
     return pd.DataFrame(np.outer(S,T),index=S.index,columns=T.index)
 
 def matrix_product(X,Y):
-    """Compute matrix product X@Y, allowing for possibility of missing data."""
-    assert all(X.columns==Y.index), "Columns and Indices don't match."
+    """Compute matrix product X@Y, allowing for possibility of missing data.
+
+    """
+
+    #if not all(X.columns==Y.index):  # Columns and Indices don't match.
+
 
     X = pd.DataFrame(X).fillna(0)
 
@@ -126,6 +130,8 @@ if __name__=='__main__':
     b = dm.DataVec([1,1])
     c = test_matmul_matvec(A,b)
 
+    b = pd.Series([1,1])
+    c = test_matmul_matvec(A,b)
 #+end_src
 ** Matrix Decompositions
 #+begin_src python :tangle metrics_miscellany/utils.py
@@ -259,9 +265,13 @@ def dummies(df,cols,suffix=False):
 
     v = concat([use_indices(df,idxcols),df[colcols]],axis=1)
 
-    v['tuple'] = list(zip(*[v[s] for s in idxcols+colcols]))
+    usecols = []
+    for s in idxcols+colcols:
+        usecols.append(v[s].squeeze())
 
-    v = get_dummies(v['tuple']).astype(int)
+    tuples = pd.Series(list(zip(*usecols)),index=v.index)
+
+    v = get_dummies(tuples).astype(int)
 
     if suffix==True:
         suffix = '_d'
@@ -274,6 +284,38 @@ def dummies(df,cols,suffix=False):
     v.columns = MultiIndex.from_tuples(columns,names=idxcols+colcols)
 
     return v
+#+end_src
+** Index utilities
+#+begin_src python :tangle metrics_miscellany/utils.py
+import pandas as pd
+def drop_vestigial_levels(idx):
+    """
+    Drop levels that don't vary across the index.
+
+    >>> idx = pd.MultiIndex.from_tuples([(1,1),(1,2)],names=['i','j'])
+    >>> drop_vestigial_levels(idx)
+    Index([1, 2], dtype='int64', name='j')
+    """
+    if isinstance(idx,(pd.DataFrame,pd.Series)):
+        df = idx
+        idx = df.index
+        HumptyDumpty = True
+    else:
+        HumptyDumpty = False
+
+    try:
+        for l,lev in enumerate(idx.levels):
+            if len(set(idx.codes[l]))<=1:
+                idx = idx.droplevel(l)
+    except AttributeError:
+        pass
+
+    if HumptyDumpty:
+        df.index = idx
+        idx = df
+
+    return idx
+
 #+end_src
 
 * datamat
@@ -344,11 +386,31 @@ class DataVec(pd.Series):
         else:
             return DataMat(np.diag(self.values),index=self.index,columns=self.index)
 
+    @cached_property
+    def norm(self,ord=None,**kwargs):
+        return np.linalg.norm(self,ord,**kwargs)
+
     # Binary operations
     def outer(self,other):
         """Outer product of two series (vectors).
         """
         return DataMat(np.outer(self,other),index=self.index,columns=other.index)
+
+    # Other manipulations
+    def concat(self,other,axis=0,levelnames=False,toplevelname='v',suffixer='_',
+               drop_vestigial_levels=False,**kwargs):
+        p = DataMat(self)
+        out = p.concat(other,axis=axis,
+                       levelnames=levelnames,
+                       toplevelname=toplevelname,
+                       suffixer=suffixer,
+                       drop_vestigial_levels=drop_vestigial_levels,
+                       ,**kwargs)
+
+        if axis==0: out = out.squeeze()
+
+        return out
+
 
 #+end_src
 ** DataMat class
@@ -358,7 +420,7 @@ class DataMat(pd.DataFrame):
     __pandas_priority__ = 6000
 
     def __init__(self, *args, **kwargs):
-        """Create a DataVec.
+        """Create a DataMat.
 
         Inherit from :meth: `pd.DataFrame.__init__`.
 
@@ -368,6 +430,8 @@ class DataMat(pd.DataFrame):
                 (List of) name(s) for levels of index.
         colnames
                 (List of) name(s) for levels of columns.
+        name
+                String naming DataMat object.
         """
         if 'idxnames' in kwargs.keys():
             idxnames = kwargs.pop('idxnames')
@@ -441,9 +505,13 @@ class DataMat(pd.DataFrame):
     # Unary operations
     @cached_property
     def inv(self):
-        return matrix_inv(self)
+        return DataMat(matrix_inv(self))
 
-    @property
+    @cached_property
+    def norm(self,ord=None,**kwargs):
+        return np.linalg.norm(self,ord,**kwargs)
+
+    @cached_property
     def dg(self):
         """Extract diagonal from square matrix.
 
@@ -453,22 +521,48 @@ class DataMat(pd.DataFrame):
         assert np.all(self.index==self.columns), "Should have columns same as index."
         return DataVec(np.diag(self.values),index=self.index)
 
+    def rank(self,**kwargs):
+        """Matrix rank"""
+        return np.linalg.matrix_rank(self,**kwargs)
+
+    @cached_property
     def pinv(self):
         """Moore-Penrose pseudo-inverse."""
-        return matrix_pinv(self)
+        return DataMat(matrix_pinv(self))
 
+    # Binary operations
     def matmul(self,other):
         Y = matrix_product(self,other)
-        return DataMat(Y)
+        if len(Y.shape) <= 1 or Y.shape[1]==1:
+            return DataVec(Y)
+        else:
+            return DataMat(Y)
+
+    __matmul__ = matmul
 
     def kron(self,other,sparse=False):
         return DataMat(utils.kron(self,other,sparse=sparse))
+
+    def lstsq(self,other):
+        rslt = np.linalg.lstsq(self,other,rcond=None)
+
+        if len(rslt[0].shape)<2 or rslt[0].shape[1]==1:
+            b = DataVec(rslt[0],index=self.columns)
+        else:
+            b = DataMat(rslt[0],index=self.columns,columns=other.columns)
+
+        return b
+
+    def proj(self,other):
+        b = other.lstsq(self)
+        return other@b
 
     # Other transformations
     def dummies(self,cols,suffix=''):
         return DataMat(utils.dummies(self,cols,suffix=suffix))
 
-    def concat(self,other,axis=0,levelnames=False,toplevelname='v',suffixer='_',**kwargs):
+    def concat(self,other,axis=0,levelnames=False,toplevelname='v',suffixer='_',
+               drop_vestigial_levels=False,**kwargs):
         """Concatenate self and other.
 
         This uses the machinery of pandas.concat, but ensures that when two
@@ -482,10 +576,9 @@ class DataMat(pd.DataFrame):
         -----
         >>> a = DataVec([1,2],name='a',idxnames='i')
         >>> b = DataMat([[1,2],[3,4]],name='b',idxnames='i',colnames='j')
-        >>> b.concat([a,b],axis=1)
+        >>> b.concat([a,b],axis=1,levelnames=True)
         ['b', 'a', 'b_0']
         """
-
         # Make other a list, unless it's a dict, and get allnames.
         if levelnames==False:
             assign_missing=True
@@ -523,7 +616,8 @@ class DataMat(pd.DataFrame):
                 unique_names.append(name+next(suffix))
 
         # Reconcile indices so they all have common named levels.
-        idxs = reconcile_indices([obj.index for obj in allobjs])
+        idxs = reconcile_indices([obj.index for obj in allobjs],
+                                 drop_vestigial_levels=drop_vestigial_levels)
         for i in range(len(idxs)):
             allobjs[i].index = idxs[i]
 
@@ -536,7 +630,7 @@ class DataMat(pd.DataFrame):
                 obj = DataMat(obj)
                 allobjs[i] = obj
                 allcols += [obj.columns]
-        cols = reconcile_indices(allcols)
+        cols = reconcile_indices(allcols,drop_vestigial_levels=drop_vestigial_levels)
         for i in range(len(idxs)):
             allobjs[i].columns = cols[i]
 
@@ -590,7 +684,7 @@ def get_names(dms,assign_missing=False):
                 names[i] = next(missnames)
         return names
 
-def reconcile_indices(idxs,fillvalue=''):
+def reconcile_indices(idxs,fillvalue='',drop_vestigial_levels=False):
     """
     Given a list of indices, give them all the same levels.
 
@@ -604,7 +698,7 @@ def reconcile_indices(idxs,fillvalue=''):
         # Identify vestigial levels & drop
         droppednames = {}
         for i,level in enumerate(x.levels):
-            if len(level)==1: # Vestigial level
+            if drop_vestigial_levels and len(level)==1: # Vestigial level
                 try:
                     if len(x.levels)>1:
                         dropname = x.names[i]
@@ -636,7 +730,87 @@ def reconcile_indices(idxs,fillvalue=''):
         out.append(idx.reorder_levels(names))
 
     return out
-                
+
+def concat(dms,axis=0,levelnames=False,toplevelname='v',suffixer='_',**kwargs):
+    """Concatenate self and other.
+
+    This uses the machinery of pandas.concat, but ensures that when two
+    DataMats having multiindices with different number of levels are
+    concatenated that new levels are added so as to preserve a result with a
+    multiindex.
+
+    if other is a dictionary and levelnames is not False, then a new level in the multiindex is created naming the columns belonging to the original DataMats.
+
+    USAGE
+    -----
+    >>> a = DataVec([1,2],name='a',idxnames='i')
+    >>> b = DataMat([[1,2],[3,4]],name='b',idxnames='i',colnames='j')
+    >>> concat([a,b],axis=1,levelnames=True)
+    ['b', 'a', 'b_0']
+    """
+
+    # Make dms a list, unless it's a dict, and get allnames.
+    if levelnames==False:
+        assign_missing=True
+    else:
+        assign_missing=levelnames
+        levelnames = True
+
+    allobjs = []
+    if isinstance(dms,dict):
+        allobjs = list(dms.values())
+        allnames = list(dms.keys())
+    else:
+        if isinstance(dms,tuple):
+            allobjs = list(dms)
+        elif isinstance(dms,(DataMat,DataVec)):
+            allobjs = [dms]
+            allnames = get_names([dms],assign_missing=assign_missing)
+        elif isinstance(dms,list):
+            allobjs = dms
+        else:
+            raise ValueError("Unexpected type")
+
+        allnames = get_names(allobjs,assign_missing=assign_missing)
+
+    # Have list of all names, but may not be unique.
+
+    suffix = (f'{suffixer}{i:d}' for i in range(len(allnames)))
+    unique_names = []
+    for i,name in enumerate(allnames):
+        if name is None:
+            name = next(suffix)
+        if name not in unique_names:
+            unique_names.append(name)
+        else:
+            unique_names.append(name+next(suffix))
+
+    # Reconcile indices so they all have common named levels.
+    idxs = reconcile_indices([obj.index for obj in allobjs])
+    for i in range(len(idxs)):
+        allobjs[i].index = idxs[i]
+
+    # Get list of columns, allowing for DataVec
+    allcols = []
+    for i,obj in enumerate(allobjs):
+        try:
+            allcols += [obj.columns]
+        except AttributeError: # No columns attribute?
+            obj = DataMat(obj)
+            allobjs[i] = obj
+            allcols += [obj.columns]
+    cols = reconcile_indices(allcols)
+    for i in range(len(idxs)):
+        allobjs[i].columns = cols[i]
+
+    # Now have a list of unique names, build a dictionary
+    d = dict(zip(unique_names,allobjs))
+
+    if levelnames:
+        return utils.concat(d,axis=axis,names=toplevelname,**kwargs)
+    else:
+        return utils.concat(allobjs,axis=axis,**kwargs)
+
 
 if __name__ == "__main__":
     a = DataVec([1,2],name='a',idxnames='i')
