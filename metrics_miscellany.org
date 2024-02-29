@@ -47,22 +47,28 @@ def outer(S,T):
     """
     return pd.DataFrame(np.outer(S,T),index=S.index,columns=T.index)
 
-def matrix_product(X,Y):
+def matrix_product(X,Y,strict=False,fillmiss=True):
     """Compute matrix product X@Y, allowing for possibility of missing data.
 
+    The "strict" flag if set requires that the names of levels of indices that vary for columns of X be in the intersection of names of levels of indices that vary for rows of Y.
     """
 
-    #if not all(X.columns==Y.index):  # Columns and Indices don't match.
+    if strict and not all(X.columns==Y.index):  # Columns and Indices don't match.
+        X.columns = drop_vestigial_levels(X.columns)
+        Y.index = drop_vestigial_levels(Y.index)
 
+    if fillmiss:
+        X = X.fillna(0)
+        Y = Y.fillna(0)
 
-    X = pd.DataFrame(X).fillna(0)
+    prod = np.dot(X,Y)
 
     if len(Y.shape)==1 or Y.shape[1]==1:
-        Y = pd.Series(Y.squeeze()).fillna(0)
+        out = pd.Series(prod.squeeze(),index=X.index)
     else:
-        Y = pd.DataFrame(Y).fillna(0)
+        out = pd.DataFrame(prod,index=X.index,columns=Y.columns)
 
-    return np.matmul(X,Y)
+    return out
 
 def self_inner(X,min_obs=None):
     """Compute inner product X.T@X, allowing for possibility of missing data."""
@@ -85,18 +91,49 @@ def self_inner(X,min_obs=None):
     return C + N*np.outer(xbar,xbar)
 
 def kron(A,B,sparse=False):
-    if sparse: raise NotImplementedError
+    if sparse: 
+        from scipy.sparse import kron
 
-    a = np.kron(A,B)
-    columns = pd.MultiIndex.from_product(A.columns.levels+B.columns.levels)
+    if isinstance(A,pd.DataFrame):
+        a = A.values
+        if isinstance(B,pd.DataFrame):
+            columns = pd.MultiIndex.from_tuples([(*i,*j) for i in A.columns for j in B.columns])
+            b = B.values
+        else:
+            columns = A.columns.remove_unused_levels()
+            b = B.values.reshape((-1,1))
+    elif isinstance(B,pd.DataFrame):
+        columns = B.columns.remove_unused_levels()
+        a = A.values.reshape((-1,1))
+        b = B.values
 
-    index = pd.MultiIndex.from_product(A.index.levels+B.index.levels)
+    index = pd.MultiIndex.from_tuples([(*i,*j) for i in A.index for j in B.index],
+                                      names=A.index.names+B.index.names)
 
-    return pd.DataFrame(a,columns=columns,index=index)
+    if sparse:
+        a = kron(a,b)
+        return pd.DataFrame.sparse.from_spmatrix(a,columns=columns,index=index)
+    else:
+        a = np.kron(a,b)
+        return pd.DataFrame(a,columns=columns,index=index)
+    
 
 
 #+end_src
 *** Binary Operation Tests
+#+begin_src python :tangle metrics_miscellany/test/test_index_multiplication.py
+import metrics_miscellany.datamat as dm
+import pandas as pd
+import numpy as np
+
+idx = pd.MultiIndex.from_tuples([(0,0,0),(0,0,1),(1,0,0),(1,0,1)],names=['i','j','k'])
+X = dm.DataMat([[1,2,3,4]],columns=idx,idxnames=['l'])
+Y = dm.DataMat([[1,2,3,0]],columns=idx.droplevel('j'),idxnames='m').T
+
+assert (X@Y).index.names == ['l']
+
+(X.matmul(Y,strict=True))
+#+end_src
 #+begin_src python :tangle metrics_miscellany/test/test_binary_ops.py
 import metrics_miscellany.datamat as dm
 import pandas as pd
@@ -288,7 +325,7 @@ def dummies(df,cols,suffix=False):
 ** Index utilities
 #+begin_src python :tangle metrics_miscellany/utils.py
 import pandas as pd
-def drop_vestigial_levels(idx):
+def drop_vestigial_levels(idx,axis=0,both=False):
     """
     Drop levels that don't vary across the index.
 
@@ -296,6 +333,12 @@ def drop_vestigial_levels(idx):
     >>> drop_vestigial_levels(idx)
     Index([1, 2], dtype='int64', name='j')
     """
+    if both:
+        return drop_vestigial_levels(drop_vestigial_levels(idx,axis=1))
+
+    if axis==1:
+        idx = idx.T
+
     if isinstance(idx,(pd.DataFrame,pd.Series)):
         df = idx
         idx = df.index
@@ -304,15 +347,23 @@ def drop_vestigial_levels(idx):
         HumptyDumpty = False
 
     try:
-        for l,lev in enumerate(idx.levels):
+        l = 0
+        L = len(idx.levels)
+        while l < L:
             if len(set(idx.codes[l]))<=1:
                 idx = idx.droplevel(l)
+                L -= 1
+            else:
+                l += 1
+                if l>=L: break
     except AttributeError:
         pass
 
     if HumptyDumpty:
         df.index = idx
         idx = df
+        if axis==1:
+            idx = idx.T
 
     return idx
 
@@ -386,7 +437,6 @@ class DataVec(pd.Series):
         else:
             return DataMat(np.diag(self.values),index=self.index,columns=self.index)
 
-    @cached_property
     def norm(self,ord=None,**kwargs):
         return np.linalg.norm(self,ord,**kwargs)
 
@@ -511,7 +561,6 @@ class DataMat(pd.DataFrame):
     def norm(self,ord=None,**kwargs):
         return np.linalg.norm(self,ord,**kwargs)
 
-    @cached_property
     def dg(self):
         """Extract diagonal from square matrix.
 
@@ -525,14 +574,25 @@ class DataMat(pd.DataFrame):
         """Matrix rank"""
         return np.linalg.matrix_rank(self,**kwargs)
 
+    def svd(self,hermitian=False):
+        """Singular value composition into U@S.dg@V.T."""
+        idx = self.index
+        cols = self.columns
+        u,s,vt = np.linalg.svd(self,compute_uv=True,full_matrices=False,hermitian=hermitian)
+        u = DataMat(u,index=idx)
+        vt = DataMat(vt,columns=cols)
+        s = DataVec(s)
+
+        return u,s,vt
+
     @cached_property
     def pinv(self):
         """Moore-Penrose pseudo-inverse."""
         return DataMat(matrix_pinv(self))
 
     # Binary operations
-    def matmul(self,other):
-        Y = matrix_product(self,other)
+    def matmul(self,other,strict=False):
+        Y = matrix_product(self,other,strict=strict)
         if len(Y.shape) <= 1 or Y.shape[1]==1:
             return DataVec(Y)
         else:
@@ -986,6 +1046,72 @@ def linear_gmm(X,y,Z,W=None,return_Omega=False):
     Linear GMM estimator.
     """
 
+    if W is None: # Use 2sls to get initial estimate of W
+        b1,Omega1 = tsls(X,y,Z,return_Omega=True)
+        W = Omega1.inv
+        return linear_gmm(X,y,Z,W=W)
+    else:
+        n,k = X.shape
+
+        Qxz = X.T@Z/n
+
+        b = lstsq(Qxz@W@Qxz.T,Qxz@W@Z.T@y/n,rcond=None)[0]
+
+        b = pd.Series(b.squeeze(),index=X.columns)
+
+        # Cov matrix
+        e = y.squeeze() - X@b
+
+        #Omega = Z.T@(e**2).dg()@Z/n
+        # Rather than forming even a sparse nxn matrix, just use element-by-element multiplication
+        ZTe = Z.T.multiply(e)
+        Omega = ZTe@ZTe.T/n
+
+        if return_Omega:
+            return b,Omega
+        else:
+            Vb = (Qxz@Omega.inv@Qxz.T).inv/n
+            return b,Vb
+
+#+end_src
+*** Linear GMM Tests
+#+begin_src python :tangle metrics_miscellany/test/test_linear_gmm.py
+import pandas as pd
+from metrics_miscellany.estimators import linear_gmm
+from metrics_miscellany.datamat import DataMat, DataVec
+import numpy as np
+
+def test_linear_gmm(N=500000,tol=1e-2):
+
+    z = DataMat(np.random.standard_normal((N,2)),columns=['z1','z2'])
+    u = DataVec(np.random.standard_normal((N,)))
+    x = DataMat({'x':z.sum(axis=1) + u})
+
+    x['Constant'] = 1
+    z['Constant'] = 1
+
+    beta = DataMat({'Coefficients':[1,0]},index=['x','Constant'])
+
+    y = (x@beta).squeeze() + u
+
+    b,V = linear_gmm(x,y,z)
+
+    assert np.allclose(b,beta.squeeze(),atol=tol)
+
+    return b,V
+
+if __name__=='__main__':
+    b,V = test_linear_gmm()
+
+#+end_src
+
+** Linear GMM with Linear Restrictions
+#+begin_src python :tangle metrics_miscellany/estimators.py
+def restricted_linear_gmm(X,y,Z,R,r,W=None,return_Omega=False):
+    """
+    Linear GMM estimator.
+    """
+    raise NotImplementedError
     if W is None: # Use 2sls to get initial estimate of W
         b1,Omega1 = tsls(X,y,Z,return_Omega=True)
         W = Omega1.inv
