@@ -419,6 +419,18 @@ class DataVec(pd.Series):
 
         self.index.names = idxnames
 
+    def __getitem__(self,key):
+        """v.__getitem__(k) == v[k]
+
+        >>> v = DataVec({'a':1,'b':2})
+        >>> v['a']
+        1
+        """
+        try:
+            return pd.Series.__getitem__(self,key)
+        except KeyError: # Perhaps key was for an index?
+            return __getitem__(self,(key,))
+
     @property
     def _constructor(self):
         return DataVec
@@ -537,6 +549,18 @@ class DataMat(pd.DataFrame):
             colnames = [colnames]
 
         self.columns.names = colnames
+
+    def __getitem__(self,key):
+        """X.__getitem__(k) == X[k]
+
+        >>> X = DataMat([[1,2,3],[4,5,6]],colnames='cols',idxnames='rows')
+        >>> X[0].sum().squeeze()==5
+        True
+        """
+        try:
+            return pd.DataFrame.__getitem__(self,key)
+        except KeyError: # Perhaps key was for an index?
+            return __getitem__(self,(key,))
 
     @property
     def _constructor(self):
