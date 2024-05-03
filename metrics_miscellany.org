@@ -588,7 +588,7 @@ class DataMat(pd.DataFrame):
     def dg(self):
         """Extract diagonal from square matrix.
 
-        >>> DataMat([[1,2],[3,4]],idxnames='i').dg.values.tolist()
+        >>> DataMat([[1,2],[3,4]],idxnames='i').dg().values.tolist()
         [1, 4]
         """
         assert np.all(self.index==self.columns), "Should have columns same as index."
@@ -660,7 +660,7 @@ class DataMat(pd.DataFrame):
         -----
         >>> a = DataVec([1,2],name='a',idxnames='i')
         >>> b = DataMat([[1,2],[3,4]],name='b',idxnames='i',colnames='j')
-        >>> b.concat([a,b],axis=1,levelnames=True)
+        >>> b.concat([a,b],axis=1,levelnames=True).columns.levels[0].tolist()
         ['b', 'a', 'b_0']
         """
         # Make other a list, unless it's a dict, and get allnames.
@@ -829,7 +829,7 @@ def concat(dms,axis=0,levelnames=False,toplevelname='v',suffixer='_',**kwargs):
     -----
     >>> a = DataVec([1,2],name='a',idxnames='i')
     >>> b = DataMat([[1,2],[3,4]],name='b',idxnames='i',colnames='j')
-    >>> concat([a,b],axis=1,levelnames=True)
+    >>> concat([a,b],axis=1,levelnames=True).columns.levels[0].tolist()
     ['b', 'a', 'b_0']
     """
 
