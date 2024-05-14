@@ -2,7 +2,7 @@
 ** Unary Matrix Operators
 #+begin_src python :tangle metrics_miscellany/utils.py
 import numpy as np
-from scipy import sparse
+from scipy import sparse as scipy_sparse
 import pandas as pd
 
 def inv(A):
@@ -29,7 +29,7 @@ def diag(X,sparse=True):
     except IndexError: # X is a series?
         if sparse:
             # We can wind up blowing ram if not careful...
-            d = sparse.diags(X.values)
+            d = scipy_sparse.diags(X.values)
             d = pd.DataFrame.sparse.from_spmatrix(d,index=X.index,columns=X.index)
         else:
             raise NotImplementedError
@@ -1313,7 +1313,7 @@ matrix_product = utils.matrix_product
 diag = utils.diag
 inv = utils.inv
 
-from scipy.optimize import minimize_scalar, minimize
+from scipy.optimize import minimize_scalar, minimize, approx_fprime
 from scipy.optimize import minimize as scipy_min
 import pandas as pd
 
@@ -1355,7 +1355,10 @@ def Omegahat(b):
 
     return ete
 
-def J(b,W):
+def JN(b,W=None):
+
+    if W is None:
+        W = utils.inv(Omegahat(b))
 
     m = gN(b) # Sample moments @ b
 
@@ -1365,7 +1368,7 @@ def J(b,W):
     WN = pd.DataFrame(matrix_product(diag(gN.N),W))
 
     crit = (m.T@WN@m).squeeze()
-    assert crit > 0
+    assert crit >= 0
 
     return crit
 
@@ -1386,9 +1389,9 @@ def one_step_gmm(W=None,b_init=None):
 
     assert np.linalg.matrix_rank(W)==W.shape[0]
 
-    b = minimize(lambda b: J(b,W),b_init=b_init)
+    b = minimize(lambda b: JN(b,W),b_init=b_init)
 
-    return b, J(b,W)
+    return b, JN(b,W)
 
 def two_step_gmm(b_init=None):
 
@@ -1406,17 +1409,22 @@ def continuously_updated_gmm(b_init=None):
     # First step uses identity weighting matrix
     W = lambda b: utils.inv(Omegahat(b))
 
-    bhat = minimize(lambda b: J(b,utils.inv(Omegahat(b))),b_init=b_init)
+    bhat = minimize(lambda b: JN(b,utils.inv(Omegahat(b))),b_init=b_init)
 
-    return bhat, J(bhat,W(bhat))
+    return bhat, JN(bhat,W(bhat))
 
+def dgN(b):
+    """
+    Average gradient of gj(b).
 
-def Jay(b):
+    This function provides numerical derivatives.  
 
-    W = lambda b: utils.inv(Omegahat(b))
-    g = lambda b: gN(b)
+    One may wish to override this with a function dgN which returns analytical derivatives.
+    """
+    gradient = pd.DataFrame(approx_fprime(b,gN),index=gN(b).index)
 
-    return g(b).T@W(b)@g(b)
+    return gradient
+    
 
 def Vb(b):
     """Covariance of estimator of b.
@@ -1595,9 +1603,9 @@ class GMM(object):
 
         return gmm.Omegahat(b,self.data)
 
-    def J(self,b,W):
+    def JN(self,b,W):
 
-        return gmm.J(b,W,self.data)
+        return gmm.JN(b,W,self.data)
 
     def one_step_gmm(self,W=None,b_init=None):
 
