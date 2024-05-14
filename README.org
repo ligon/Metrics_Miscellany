@@ -1,0 +1,5 @@
+Code implementing various statistical and econometric tools, developed haphazardly.  Hence the "miscellany".
+
+Key ideas that motivate this collection:
+   1. Input and output dataframes or series.
+  2. Provide clear, clean, integrated tests of estimators.
