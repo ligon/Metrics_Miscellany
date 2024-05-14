@@ -999,6 +999,21 @@ if __name__=='__main__':
     test_ols()
 
 #+end_src
+** Jrue OLS
+Jrue's implementation of OLS, no dependency on statsmodels.
+#+begin_src python :tangle metrics_miscellany/estimators.py
+def jrue_ols(X,y):
+
+    b = lstsq(X.T@X,X.T@y)
+
+    b = pd.Series(b.squeeze(),index=X.columns)
+
+    e = y.squeeze() - X@b
+
+    V = e.var()*utils.inv(X.T@X)
+
+    return b,V
+#+end_src
 ** Two-stage Least Squares
 #+begin_src python :tangle metrics_miscellany/estimators.py
 def tsls(X,y,Z,return_Omega=False):
