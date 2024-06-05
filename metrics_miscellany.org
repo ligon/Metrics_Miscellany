@@ -1,4 +1,5 @@
-* Utils
+* DataFrame Utils
+Here we provide various utils meant to operate on pandas DataFrames and Series.  Note that because datamat classes inherit from pandas these functions can be used with the datamat classes as well.
 ** Unary Matrix Operators
 #+begin_src python :tangle metrics_miscellany/utils.py
 import numpy as np
@@ -15,7 +16,7 @@ def inv(A):
 def pinv(A):
     """Moore-Penrose pseudo-inverse of A.
 
-    >>> A = dm.DataMat([[1,2,3],[4,5,6]])
+    >>> A = pd.DataFrame([[1,2,3],[4,5,6]])
     >>> np.allclose(A@pinv(A),np.eye(2))
     True
     """
@@ -24,6 +25,16 @@ def pinv(A):
     B = np.linalg.pinv(A)
     return pd.DataFrame(B,columns=A.index,index=A.columns)
 
+def svd(A,hermitian=False):
+    """Singular value composition into U@S.dg@V.T."""
+    idx = A.index
+    cols = A.columns
+    u,s,vt = np.linalg.svd(A,compute_uv=True,full_matrices=False,hermitian=hermitian)
+    u = pd.DataFrame(u,index=idx)
+    vt = pd.DataFrame(vt,columns=cols)
+    s = pd.Series(s)
+
+    return u,s,vt
 
 def diag(X,sparse=True):
 
@@ -42,8 +53,23 @@ def diag(X,sparse=True):
 
     return d
 
+def sqrtm(A,hermitian=False):
+    """
+    Return a positive semi-definite square root for the matrix A.
+
+    NB: A must itself be positive semi-definite.
+    """
+    u,s,vt = svd(A,hermitian=hermitian)
+
+    if np.any(s<0):
+        raise ValueError("Matrix must be positive semi-definite.")
+
+    return u@np.sqrt(s).dg()@vt
+
+
 
 #+end_src
+
 ** Binary Matrix Products
 #+begin_src python :tangle metrics_miscellany/utils.py
 def outer(S,T):
@@ -65,12 +91,16 @@ def matrix_product(X,Y,strict=False,fillmiss=True):
         X = X.fillna(0)
         Y = Y.fillna(0)
 
-    prod = np.dot(X,Y)
+    prod = np.dot(X,Y).squeeze()
 
-    if len(Y.shape)==1 or Y.shape[1]==1:
+    if len(prod.shape)==1 or prod.shape[1]==1:
         out = pd.Series(prod.squeeze(),index=X.index)
     else:
-        out = pd.DataFrame(prod,index=X.index,columns=Y.columns)
+        try:
+            cols = Y.columns
+        except AttributeError:
+            cols = None
+        out = pd.DataFrame(prod,index=X.index,columns=cols)
 
     return out
 
@@ -95,7 +125,7 @@ def self_inner(X,min_obs=None):
     return C + N*np.outer(xbar,xbar)
 
 def kron(A,B,sparse=False):
-    if sparse: 
+    if sparse:
         from scipy.sparse import kron
 
     if isinstance(A,pd.DataFrame):
@@ -120,7 +150,7 @@ def kron(A,B,sparse=False):
     else:
         a = np.kron(a,b)
         return pd.DataFrame(a,columns=columns,index=index)
-    
+
 
 
 #+end_src
@@ -604,11 +634,10 @@ class DataMat(pd.DataFrame):
 
     def svd(self,hermitian=False):
         """Singular value composition into U@S.dg@V.T."""
-        idx = self.index
-        cols = self.columns
-        u,s,vt = np.linalg.svd(self,compute_uv=True,full_matrices=False,hermitian=hermitian)
-        u = DataMat(u,index=idx)
-        vt = DataMat(vt,columns=cols)
+
+        u,s,vt = svd(self,hermitian=hermitian)
+        u = DataMat(u)
+        vt = DataMat(vt)
         s = DataVec(s)
 
         return u,s,vt
@@ -624,8 +653,8 @@ class DataMat(pd.DataFrame):
         return DataMat(matrix_pinv(self))
 
     # Binary operations
-    def matmul(self,other,strict=False):
-        Y = matrix_product(self,other,strict=strict)
+    def matmul(self,other,strict=False,fillmiss=False):
+        Y = matrix_product(self,other,strict=strict,fillmiss=fillmiss)
         if len(Y.shape) <= 1 or Y.shape[1]==1:
             return DataVec(Y)
         else:
@@ -916,6 +945,92 @@ if __name__ == "__main__":
 
 
 #+end_src
+* DataMat/Vec functions
+The following utilities work directly with datamat objects.
+#+begin_src python :tangle metrics_miscellany/datamat.py
+def generalized_eig(A,B):
+    """
+    Generalized eigenvalue problem for symmetric matrices A & B, B positive definite.
+
+    Roots l solves A@v = l*B@v
+
+    Returns list of roots l and corresponding eigenvectors V.
+    """
+    from scipy.linalg import eigh
+
+    l,v = eigh(A,B)
+    l = l[::-1] # Biggest eigenvalues first
+    v = v[:,::-1]
+
+    assert np.all(np.abs((A-l[0]*B)@v[:,0])<1e-10)
+
+    v = DataMat(v,index=A.index)
+    l = DataVec(l)
+
+    return l,v
+
+
+def canonical_variates(X,Y):
+    """
+    Canonical variates from Canonical Correlation Analysis.
+
+    Returns u,v such that corr^2(Yu[m],Xv[m]) is maximized for m=1,...
+
+    See Hastie-Tibshirani-Friedman (2009) Exercise 3.20 or Rao (1965) 8f.
+    """
+
+    m = min(X.shape[1],Y.shape[1])
+    U1 = X - X.mean()
+    U2 = Y - Y.mean()
+
+    T = U1.shape[0]
+
+    S11 = U1.T@U1/T
+    S22 = U2.T@U2/T
+
+    S12 = U1.T@U2/T
+    S21 = S12.T
+
+    l,M = generalized_eig(S21@S11.inv@S12,S22)
+    l0,L = generalized_eig(S12@S22.inv@S21,S11)
+
+    assert np.allclose(l[:m],l0[:m])
+
+    # Flip signs if necessary to have positive correlations
+    sign = np.sign(((S12@M)/(S11@L*np.sqrt(l))).mean())  # cf. Rao 8f.1.2
+
+    # Interpret as a correlation coefficient
+    l = np.sqrt(l)
+
+    return l, L*sign, M
+
+def reduced_rank_regression(X,Y,r):
+    """
+    Reduced rank multivariate regression Y = XB + e.
+
+    Minimizes sum of squared errors subject to requirement that B.rank()==r.
+
+    See Hastie et al (2009) S. 4.2 or She-Chen (2017).
+    """
+
+    muX = X.mean()
+    muY = Y.mean()
+
+    X = X - muX
+    Y = Y - muY
+
+    C = sqrtm(Y.cov())
+
+    U,rho,Vt = ((C@Y.T@(Y.proj(X)))@C).svd()
+    V = Vt.T
+
+    Br = X.lstsq(Y@V.iloc[:,:r])@V.iloc[:,:r].pinv
+
+    return Br
+
+
+#+end_src
+
 
 
 * Estimators
@@ -1071,4 +1186,3 @@ if __name__=='__main__':
     test_tsls()
 
 #+end_src
-
