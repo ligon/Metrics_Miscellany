@@ -635,7 +635,7 @@ class DataMat(pd.DataFrame):
     def svd(self,hermitian=False):
         """Singular value composition into U@S.dg@V.T."""
 
-        u,s,vt = svd(self,hermitian=hermitian)
+        u,s,vt = utils.svd(self,hermitian=hermitian)
         u = DataMat(u)
         vt = DataMat(vt)
         s = DataVec(s)
