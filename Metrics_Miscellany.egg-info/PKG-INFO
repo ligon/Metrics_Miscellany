@@ -1,0 +1,15 @@
+Metadata-Version: 2.1
+Name: Metrics-Miscellany
+Version: 0.2.2
+Summary: Miscellaneous code for estimation involving pandas dataframes.
+Home-page: https://bitbucket.org/ligonresearch/metrics_miscellany
+Author: Ethan Ligon
+Author-email: ligon@berkeley.edu
+License: Creative Commons Attribution-Noncommercial-ShareAlike 4.0 International license
+License-File: LICENSE.txt
+
+Code implementing various statistical and econometric tools, developed haphazardly.  Hence the "miscellany".
+
+Key ideas that motivate this collection:
+   1. Input and output dataframes or series.
+  2. Provide clear, clean, integrated tests of estimators.
