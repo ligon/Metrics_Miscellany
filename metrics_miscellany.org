@@ -53,19 +53,6 @@ def diag(X,sparse=True):
 
     return d
 
-def sqrtm(A,hermitian=False):
-    """
-    Return a positive semi-definite square root for the matrix A.
-
-    NB: A must itself be positive semi-definite.
-    """
-    u,s,vt = svd(A,hermitian=hermitian)
-
-    if np.any(s<0):
-        raise ValueError("Matrix must be positive semi-definite.")
-
-    return u@np.sqrt(s).dg()@vt
-
 
 
 #+end_src
@@ -91,7 +78,7 @@ def matrix_product(X,Y,strict=False,fillmiss=True):
         X = X.fillna(0)
         Y = Y.fillna(0)
 
-    prod = np.dot(X,Y).squeeze()
+    prod = np.dot(X,Y) #.squeeze()
 
     if len(prod.shape)==1 or prod.shape[1]==1:
         out = pd.Series(prod.squeeze(),index=X.index)
@@ -316,6 +303,26 @@ def svd_missing(A,max_rank=None,min_obs=None,heteroskedastic=False,verbose=False
     v = pd.DataFrame(v,index=A.columns)
 
     return u,s,v
+
+def sqrtm(A,hermitian=False):
+    """
+    Return a positive semi-definite square root for the matrix A.
+
+    NB: A must itself be positive semi-definite.
+    """
+    u,s,vt = svd(A,hermitian=hermitian)
+
+    if np.any(s<0):
+        raise ValueError("Matrix must be positive semi-definite.")
+
+    return u@np.diag(np.sqrt(s))@vt
+
+def cholesky(A):
+    """
+    Cholesky decomposition A = L@L.T; return lower-triangular L.
+    """
+    L = np.linalg.cholesky(A)
+    return pd.DataFrame(L,index=A.index,columns=A.columns)
 #+end_src
 ** DataFrame/Mat Manipulations
 #+begin_src python :tangle metrics_miscellany/utils.py
@@ -492,6 +499,12 @@ class DataVec(pd.Series):
         """
         return DataMat(np.outer(self,other),index=self.index,columns=other.index)
 
+    def proj(self,other):
+        """Projection of self on other."""
+        b = other.lstsq(self)
+        return other@b
+
+
     # Other manipulations
     def concat(self,other,axis=0,levelnames=False,toplevelname='v',suffixer='_',
                drop_vestigial_levels=False,**kwargs):
@@ -641,6 +654,12 @@ class DataMat(pd.DataFrame):
         s = DataVec(s)
 
         return u,s,vt
+
+    def sqrtm(self,hermitian=False):
+        return DataMat(utils.sqrtm(self))
+
+    def cholesky(self):
+        return DataMat(utils.cholesky(self))
 
     @cached_property
     def pinv(self):
