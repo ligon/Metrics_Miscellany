@@ -36,6 +36,23 @@ def svd(A,hermitian=False):
 
     return u,s,vt
 
+def eig(A,hermitian=False):
+    """Singular value composition into U@S.dg@V.T."""
+    idx = A.index
+    cols = A.columns
+    if hermitian:
+        s2,u = np.linalg.eigh(A)
+    else:
+        s2,u = np.linalg.eig(A)
+
+    s2 = np.flip(s2)
+    u = np.fliplr(u)
+
+    u = pd.DataFrame(u,index=idx,columns=cols)
+    s2 = pd.Series(s2.squeeze())
+
+    return s2,u
+
 def diag(X,sparse=True):
 
     try:
@@ -425,7 +442,7 @@ from scipy import sparse as scipy_sparse
 class DataVec(pd.Series):
     __pandas_priority__ = 5000
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, data=None,**kwargs):
         """Create a DataVec.
 
         Inherit from :meth: `pd.Series.__init__`.
@@ -440,7 +457,14 @@ class DataVec(pd.Series):
         else:
             idxnames = None
 
-        super(DataVec, self).__init__(*args,**kwargs)
+        if data is not None:
+            try:
+                if 1 in data.shape:
+                    data = data.squeeze()
+            except (AttributeError,):
+                pass
+
+        super(DataVec, self).__init__(data=data,**kwargs)
 
         # Always work with multiindex
         try:
@@ -654,6 +678,15 @@ class DataMat(pd.DataFrame):
         s = DataVec(s)
 
         return u,s,vt
+
+    def eig(self,hermitian=False):
+        """Eigendecomposition.  Returns eigenvalues & corresponding eigenvectors.
+        """
+        s2,u = utils.eig(self,hermitian=hermitian)
+        u = DataMat(u)
+        s2 = DataVec(s2)
+
+        return s2,u
 
     def sqrtm(self,hermitian=False):
         return DataMat(utils.sqrtm(self))
