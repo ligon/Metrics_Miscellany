@@ -2,4 +2,4 @@ Code implementing various statistical and econometric tools, developed haphazard
 
 Key ideas that motivate this collection:
    1. Input and output dataframes or series.
-  2. Provide clear, clean, integrated tests of estimators.
+   2. Provide clear, clean, integrated tests of estimators.
