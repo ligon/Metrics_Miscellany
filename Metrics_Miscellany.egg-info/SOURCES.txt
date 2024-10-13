@@ -1,0 +1,16 @@
+LICENSE.txt
+README.txt
+setup.cfg
+setup.py
+Metrics_Miscellany.egg-info/PKG-INFO
+Metrics_Miscellany.egg-info/SOURCES.txt
+Metrics_Miscellany.egg-info/dependency_links.txt
+Metrics_Miscellany.egg-info/top_level.txt
+metrics_miscellany/GMM_class.py
+metrics_miscellany/__init__.py
+metrics_miscellany/datamat.py
+metrics_miscellany/estimators.py
+metrics_miscellany/gmm.py
+metrics_miscellany/random.py
+metrics_miscellany/tests.py
+metrics_miscellany/utils.py
