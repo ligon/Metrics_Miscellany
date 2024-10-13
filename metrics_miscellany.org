@@ -38,6 +38,64 @@ def diag(X,sparse=True):
 
     return d
 
+def add(X,Y,column_name='X'):
+    '''
+    This function allows to do the additive operation between different and keep the columns
+    Parameters
+    ----------
+    X,Y: data
+    column_name: The columns name that we would maintain, default as the column name of X
+
+    Return
+    -----
+    X+Y
+    '''
+    assert Y.shape == X.shape,'Input has different shape'
+    if column_name == 'X':
+        return pd.DataFrame(np.array(X)+np.array(Y),columns=X.columns)
+    elif column_name == 'Y':
+        return pd.DataFrame(np.array(X)+np.array(Y),columns=Y.columns)
+    else:
+        return pd.DataFrame(np.array(X)+np.array(Y),columns=column_name)
+
+def sub(X,Y,column_name='X'):
+    '''
+    This function allows to do the subtraction operation between different and keep the columns
+    Parameters
+    ----------
+    X,Y: data
+    Column_name: The columns name that we would maintain, default as the column name of X
+
+    Return
+    -----
+    X-Y
+    '''
+    assert Y.shape == X.shape,'Input has different shape'
+    if column_name == 'X':
+        return pd.DataFrame(np.array(X)-np.array(Y),columns=X.columns)
+    elif column_name == 'Y':
+        return pd.DataFrame(np.array(X)-np.array(Y),columns=Y.columns)
+    else:
+        return pd.DataFrame(np.array(X)-np.array(Y),columns=column_name)
+
+def dot(X,Y,column_name='X'):
+    '''
+    This function allows to do the dot product(hadamard product) operation between different and keep the columns
+    Parameters
+    ----------
+    X,Y: data
+    Column_name: The columns name that we would maintain, default as the column name of X
+
+    Return
+    -----
+    X*Y
+    '''
+    assert Y.shape[0] == X.shape[0],"The rows don't match"
+    result = pd.DataFrame(np.array(X)*np.array(Y))
+    assert result.shape[1] == len(column_name),"The columns name don't match the number of columns"
+    result.columns = column_name
+    return result
+    
 
 #+end_src
 ** Binary Matrix Products
@@ -1339,15 +1397,31 @@ __version__ = "0.3.1"
 ######################################################
 # Beginning of procedural version of gmm routines
 
-def gN(b):
-    """Averages of g_j(b).
+def gN(b,data):
+    """Averages of g_j(b,data).
 
     This is generic for data, to be passed to gj.
+
+    Parameters
+    ----------
+    b:numpy array, the initial value of b0
+    data: tuple, the data we'll input to estimate b0.
+
+    Returns
+    -------
+    Sample moments @ b
     """
-    e = gj(b)
+    e = gj(b,data)
 
     gN.N,gN.k = e.shape
-    gN.N = e.count()  # Allows for possibility of missing data
+
+    if hasattr(e,'count'):
+        gN.N = e.count()  # Allows for possibility of missing data
+    elif isinstance(e,np.ndarray):  # There is no 'count' method in ndarray, we need another method
+        gN.N = np.count_nonzero(~np.isnan(e))
+    else:
+        pass
+
     # Check to see more obs. than moments.
     assert np.all(gN.N > gN.k), "More moments than observations"
 
@@ -1356,13 +1430,17 @@ def gN(b):
     except AttributeError:
         return e.mean(axis=0)
 
-def Omegahat(b):
-    e = gj(b)
+def Omegahat(b,data):
+    e = gj(b,data)
 
     # Recenter! We have Eu=0 under null.
     # Important to use this information.
     e = e - e.mean(axis=0)
-    sqrtN = np.sqrt(e.count())
+
+    if hasattr(e,'count'):
+        sqrtN = np.sqrt(e.count())
+    elif isinstance(e,np.ndarray):
+        sqrtN = np.sqrt(np.count_nonzero(~np.isnan(e)))
 
     e = e/sqrtN
 
@@ -1370,12 +1448,12 @@ def Omegahat(b):
 
     return ete
 
-def JN(b,W=None):
+def JN(b,data,W=None):
 
     if W is None:
-        W = utils.inv(Omegahat(b))
+        W = utils.inv(Omegahat(b,data))
 
-    m = gN(b) # Sample moments @ b
+    m = gN(b,data) # Sample moments @ b
 
     #Pdb().set_trace()
 
@@ -1388,45 +1466,53 @@ def JN(b,W=None):
     return crit
 
 def minimize(f,b_init=None):
+
     if b_init is None:
         return minimize_scalar(f).x
     else:
+        b_init = b_init.ravel() # ensure the dimension fulfill the requirement
         return scipy_min(f,b_init).x
 
-def one_step_gmm(W=None,b_init=None):
+def one_step_gmm(data,W=None,b_init=None):
 
     if b_init is None:
-        b_init = 0
+        b_init = np.zeros(data.shape[1])
 
     if W is None:
-        e = gj(b_init)
-        W = pd.DataFrame(np.eye(e.shape[1]),index=e.columns,columns=e.columns)
+        e = gj(b_init,data)
+        if isinstance(e,pd.DataFrame):
+            W = pd.DataFrame(np.eye(e.shape[1]),index=e.columns,columns=e.columns)
+        else:
+            W = utils.inv(Omegahat(b_init,data))
 
     assert np.linalg.matrix_rank(W)==W.shape[0]
 
-    b = minimize(lambda b: JN(b,W),b_init=b_init)
+    b = minimize(lambda b: JN(b,data,W),b_init=b_init)
 
-    return b, JN(b,W)
+    return b, JN(b,data,W)
 
-def two_step_gmm(b_init=None):
+def two_step_gmm(data,b_init=None):
 
     # First step uses identity weighting matrix
-    b1 = one_step_gmm(b_init=b_init)[0]
+    b1 = one_step_gmm(data,b_init=b_init)[0]
 
     # Construct 2nd step weighting matrix using
     # first step estimate of beta
-    W2 = utils.inv(Omegahat(b1))
+    W2 = utils.inv(Omegahat(b1,data))
 
-    return one_step_gmm(W=W2,b_init=b1)
+    return one_step_gmm(data,W=W2,b_init=b1)
 
-def continuously_updated_gmm(b_init=None):
+def continuously_updated_gmm(data,b_init=None):
+
+    if b_init is None:
+        b_init = np.zeros(data.shape[1])
 
     # First step uses identity weighting matrix
-    W = lambda b: utils.inv(Omegahat(b))
+    W = utils.inv(Omegahat(b_init,data))
 
-    bhat = minimize(lambda b: JN(b,utils.inv(Omegahat(b))),b_init=b_init)
+    bhat = minimize(lambda b: JN(b,data,utils.inv(Omegahat(b,data))),b_init=b_init)
 
-    return bhat, JN(bhat,W(bhat))
+    return bhat, JN(bhat,data,utils.inv(Omegahat(bhat,data)))
 
 def dgN(b):
     """
@@ -1582,6 +1668,78 @@ class GMM(object):
            - If supplied B is a k-vector, then
              parameter space taken to be R^k with B a possible
              starting value for optimization.
+
+	     Parameters
+	     ----------
+	     gj: function, the condition moment of b0.
+	     data: tuple, the data we'll input to estimate b0.
+	     B:
+	     if B is an positive integer, then it represents the number of parameters to be estimated in GMM,
+	     if B is any vector forms, including tuple, list or array, it represents the initial value of the parameters.
+	     W: (optional) the weighting matrix,
+
+	     usually it must satisfy the character of positive definiteness, symmetry and asymptotically efficiency.
+	     In most circumstances, we'll use the inverse of the covariance matrix of the moment conditions or the identity matrix as the weighting matrix.
+	     Returns
+	     ----------
+	     GMM class
+	     Examples
+	     ----------
+	     >>>def gj(b,data):
+	            '''
+		    input:
+		        b:numpy array, the initial value of b0
+			data:tuple, the data we'll input to estimate b0
+		    output:
+		        the result of condition moment
+		    '''
+		    Y,X,Z = data
+		    b = b.reshape(1,-1)
+		    return utils.dot(Z,utils.sub(Y,X@b.T),'Y')
+
+	     >>>Y = np.array([[1,2,3,4]]).T
+	     array([[1],
+	            [2],
+                    [3],
+                    [4]])
+	     >>>X = np.array([[2,4,5,7],[4,5,6,7]]).T
+             array([[2, 4],
+                    [4, 5],
+                    [5, 6],
+                    [7, 7]])
+	     >>>Z = np.array([[3,4,5,6]]).T
+	     array([[3],
+                    [4],
+                    [5],
+                    [6]])
+             >>>gmm_instance =GMM_class.GMM(gj,(Y,X,Z),2)
+             
+             Average of sample moment condition
+	     >>>gmm_instance.gN()
+             banana    12.5
+             pear      15.0
+
+             >>>gmm_instance.Omegahat()
+                     banana  pear
+             banana   62.25  71.0
+             pear     71.00  81.0
+             
+             >>>gmm_instance.JN()
+             119.99999999996635
+
+             >>>gmm_instance.one_step_gmm()
+             array([ 0.69776498, -0.11635622])
+
+             >>>gmm_instance.two_step_gmm()
+             array([ 0.69767442, -0.11627908])
+
+             >>>bhat = gmm_instance.two_step_gmm()
+             >>>X@bhat.T
+             0    0.930233
+             1    2.209302
+             2    2.790698
+             3    4.069767
+
         """
         self.gj = gj
         gmm.gj = gj  # Overwrite member of gmm module
@@ -1589,14 +1747,14 @@ class GMM(object):
 
         self.W = W
 
-        self.b = None
+        self.b = None 
 
         try:
             self.k = len(B)
-            self.b_init = np.array(B)
-        except TypeError:
+            self.b_init = np.array(B).reshape(1,-1)
+        except TypeError: # if B is an integer instead of a vector
             self.k = B
-            self.b_init = np.zeros(self.k)
+            self.b_init = np.zeros(self.k).reshape(1,-1)
 
         self.ell = gj(self.b_init,self.data).shape[1]
 
@@ -1607,24 +1765,35 @@ class GMM(object):
 
         self.minimize = gmm.minimize
 
-    def gN(self,b):
+    def gN(self,b=None):
         """Averages of g_j(b).
 
         This is generic for data, to be passed to gj.
+
+        You can input None.
+
         """
+        if b is None:
+            b = self.b_init.reshape(1,-1)
         return gmm.gN(b,self.data)
 
-    def Omegahat(self,b):
+    def Omegahat(self,b=None):
+        if b is None:
+            b = self.b_init.reshape(1,-1)
 
         return gmm.Omegahat(b,self.data)
 
-    def JN(self,b,W):
+    def JN(self,b=None,W=None):
+        if b is None:
+            b = self.b_init.reshape(1,-1)
 
-        return gmm.JN(b,W,self.data)
+        return gmm.JN(b,self.data,W)
 
     def one_step_gmm(self,W=None,b_init=None):
-
-        self.b = gmm.one_step_gmm(self.data,W,b_init=self.b_init)[0]
+        if b_init is None:
+            self.b = gmm.one_step_gmm(self.data,W,b_init=self.b_init)[0]
+        else:
+            self.b = gmm.one_step_gmm(self.data,W,b_init)[0]
 
         return self.b
 
