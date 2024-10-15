@@ -492,7 +492,7 @@ class DataVec(pd.Series):
         1
         """
         try:
-            return pd.Series.__getitem__(self,key)
+            return super().__getitem__(key)
         except KeyError: # Perhaps key was for an index?
             return __getitem__(self,(key,))
 
@@ -632,6 +632,35 @@ class DataMat(pd.DataFrame):
             return pd.DataFrame.__getitem__(self,key)
         except KeyError: # Perhaps key was for an index?
             return __getitem__(self,(key,))
+
+    def set_index(self,columns,levels=None,inplace=False):
+        """Set the DataMat index using existing columns.
+
+        >>> X = DataMat([[1,2,3],[4,5,6]],columns=['a','b','c'],colnames='cols',idxnames='rows')
+        >>> X.set_index(['a','b'])
+        """
+        if inplace:
+            frame = self
+        else:
+            # GH 49473 Use "lazy copy" with Copy-on-Write
+            frame = self.copy(deep=None)
+
+        if levels is None:
+            levels = columns
+            if isinstance(levels,str):
+                levels = (levels,)
+
+        try:
+            frame.index = pd.MultiIndex.from_frame(pd.DataFrame(frame.reset_index()[columns]))
+        except ValueError: # Issue with index vs. multiindex?
+            columns = [(i,) for i in columns]
+            frame.index = pd.MultiIndex.from_frame(pd.DataFrame(frame.reset_index()[columns]))
+
+        frame.drop(columns,inplace=True,axis=1)
+        frame.index.names = levels
+
+        if not inplace:
+            return frame
 
     @property
     def _constructor(self):
@@ -819,6 +848,8 @@ class DataMat(pd.DataFrame):
 
 ** datamat utils
 #+begin_src python :tangle metrics_miscellany/datamat.py
+from lsms.tools import from_dta
+
 def get_names(dms,assign_missing=False):
     """
     Given an iterable of DataMats or DataVecs, return a list of names.
@@ -984,6 +1015,15 @@ def concat(dms,axis=0,levelnames=False,toplevelname='v',suffixer='_',**kwargs):
         return utils.concat(d,axis=axis,names=toplevelname,**kwargs)
     else:
         return utils.concat(allobjs,axis=axis,**kwargs)
+
+def read_parquet(fn,**kwargs):
+    return DataMat(pd.read_parquet(fn,**kwargs))
+
+def read_pickle(fn,**kwargs):
+    return DataMat(pd.read_parquet(fn,**kwargs))
+
+def read_stata(fn,**kwargs):
+    return DataMat(from_dta(fn,**kwargs))
 
 
 if __name__ == "__main__":
