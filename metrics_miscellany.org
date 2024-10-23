@@ -459,7 +459,7 @@ class DataVec(pd.Series):
 
         if data is not None:
             try:
-                if 1 in data.shape:
+                if len(data.shape)==2 and 1 in data.shape:
                     data = data.squeeze()
             except (AttributeError,):
                 pass

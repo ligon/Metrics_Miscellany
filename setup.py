@@ -3,7 +3,7 @@ import sys
 
 setup(
     name='Metrics_Miscellany',
-    version='0.2.3',
+    version='0.2.4',
     author='Ethan Ligon',
     author_email='ligon@berkeley.edu',
     packages=['metrics_miscellany',],
