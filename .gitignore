@@ -9,3 +9,4 @@ metrics_miscellany/*
 .cache/
 /.tangle
 /.test
+/Metrics_Miscellany.egg-info/

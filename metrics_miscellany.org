@@ -155,8 +155,6 @@ def kron(A,B,sparse=False):
         a = np.kron(a,b)
         return pd.DataFrame(a,columns=columns,index=index)
 
-
-
 #+end_src
 *** Binary Operation Tests
 #+begin_src python :tangle metrics_miscellany/test/test_index_multiplication.py
@@ -1020,7 +1018,7 @@ def read_parquet(fn,**kwargs):
     return DataMat(pd.read_parquet(fn,**kwargs))
 
 def read_pickle(fn,**kwargs):
-    return DataMat(pd.read_parquet(fn,**kwargs))
+    return DataMat(pd.read_pickle(fn,**kwargs))
 
 def read_stata(fn,**kwargs):
     return DataMat(from_dta(fn,**kwargs))
