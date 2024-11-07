@@ -25,6 +25,12 @@ def pinv(A):
     B = np.linalg.pinv(A)
     return pd.DataFrame(B,columns=A.index,index=A.columns)
 
+def leverage(X):
+    """
+    Leverage of matrix X; i.e., diagonal of projection matrix.
+    """
+    return (X*pinv(X).T).sum(axis=1)
+
 def svd(A,hermitian=False):
     """Singular value composition into U@S.dg@V.T."""
     idx = A.index
@@ -692,6 +698,13 @@ class DataMat(pd.DataFrame):
         assert np.all(self.index==self.columns), "Should have columns same as index."
         return DataVec(np.diag(self.values),index=self.index)
 
+    def leverage(self):
+        """Return leverage of matrix (diagonal of projection matrix).
+
+        >>> DataMat([[1,2],[3,4],[5,6]],idxnames='i').leverage()
+        """
+        return utils.leverage(self)
+
     def rank(self,**kwargs):
         """Matrix rank"""
         return np.linalg.matrix_rank(self,**kwargs)
@@ -1215,6 +1228,71 @@ if __name__=='__main__':
 #+end_src
 ** Two-stage Least Squares
 #+begin_src python :tangle metrics_miscellany/estimators.py
+def restricted_tsls(y,X,R=None,r=None,Z=None):
+    """
+    Estimate b in y = Xb + u s.t. Rb = r.
+
+    Return b and lm, a vector of Lagrange multipliers associated with the constraints,
+    as well as estimates of Omega = E Z'ee'Z and the covariance matrix of b.
+    """
+    if Z is None:
+        Z = X
+
+    N,k = X.shape
+    _,l = Z.shape
+
+    if R is not None:
+        m,__ = R.shape
+        assert __==k, "Matrix of restrictions must be conformable with vector of parameters."
+    else:
+        m = 0
+
+    assert N==_, "X & Z must have same number of rows."
+    assert l+m>=k, f"Need number of instruments ({l}) plus restrictions ({m}) greater than or equal to number of parameters ({k})."
+
+    Qzz = Z.T@Z/N
+    Qxz = X.T@Z/N
+
+    if Qzz.shape==(1,): # Scalar
+        Qzzinv = 1/Qzz
+    else:
+        Qzzinv = Qzz.inv
+
+    Q = N*Qxz@(Qzzinv)@Qxz.T
+
+    if Q.shape==(1,): # Scalar
+        Qinv = 1/Q
+    else:
+        Qinv = Q.inv
+
+    bstar = Q.lstsq(Qxz@(Qzzinv)@Z.T@y)
+
+    if R is None:
+        b = bstar
+        lm = None
+    else:
+        D = (R@Qinv@R.T).inv
+        b = bstar + Qinv@R.T@D@(r-R@bstar)
+
+        lm = 2*D@(r-R@bstar)
+
+    e = y - X@b
+
+    Ze = Z.multiply(e,axis=0)
+    Omega = Ze.T@Ze/N
+
+    D = Qxz@Qzzinv@Qxz.T
+
+    if D.shape==(1,): # Scalar
+        Dinv = 1/D
+    else:
+        Dinv = D.inv
+
+    Vb = Dinv@(Qxz@Qzzinv@Omega@Qzzinv@Qxz.T)@Dinv/N
+
+    return b,lm,Omega,Vb
+#+end_src
+#+begin_src python :tangle metrics_miscellany/estimators.py
 def tsls(X,y,Z,return_Omega=False):
     """
     Two-stage least squares estimator.
@@ -1250,7 +1328,7 @@ def tsls(X,y,Z,return_Omega=False):
 *** TSLS Tests
 #+begin_src python :tangle metrics_miscellany/test/test_tsls.py
 import pandas as pd
-from metrics_miscellany.estimators import tsls, ols
+from metrics_miscellany.estimators import tsls, ols, restricted_tsls
 from metrics_miscellany.datamat import DataMat, DataVec
 import numpy as np
 
@@ -1267,12 +1345,15 @@ def test_tsls(N=500000,tol=1e-2):
 
     y = (x@beta).squeeze() + u
 
-    #b,V = tsls(x,y,z)
-    b,V = ols(x,y)
+    b,lm,Omega,V = restricted_tsls(y,x,Z=z)
+    b_,V_ = tsls(x,y,z)
+    #b,V = ols(x,y)
 
     assert np.allclose(b,beta.squeeze(),atol=tol)
 
+    return b,V,b_,V_
+
 if __name__=='__main__':
-    test_tsls()
+    b,V,b_,V_ = test_tsls()
 
 #+end_src
