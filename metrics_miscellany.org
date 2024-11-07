@@ -934,7 +934,7 @@ def reconcile_indices(idxs,fillvalue='',drop_vestigial_levels=False):
 
     return out
 
-def concat(dms,axis=0,levelnames=False,toplevelname='v',suffixer='_',**kwargs):
+def concat(dms,axis=0,levelnames=False,toplevelname='v',suffixer='_',drop_vestigial_levels=False,**kwargs):
     """Concatenate self and other.
 
     This uses the machinery of pandas.concat, but ensures that when two
@@ -989,7 +989,7 @@ def concat(dms,axis=0,levelnames=False,toplevelname='v',suffixer='_',**kwargs):
             unique_names.append(name+next(suffix))
 
     # Reconcile indices so they all have common named levels.
-    idxs = reconcile_indices([obj.index for obj in allobjs])
+    idxs = reconcile_indices([obj.index for obj in allobjs],drop_vestigial_levels=drop_vestigial_levels)
     for i in range(len(idxs)):
         allobjs[i].index = idxs[i]
 
