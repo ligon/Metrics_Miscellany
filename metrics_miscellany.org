@@ -698,6 +698,7 @@ class DataMat(pd.DataFrame):
         assert np.all(self.index==self.columns), "Should have columns same as index."
         return DataVec(np.diag(self.values),index=self.index)
 
+    @cached_property
     def leverage(self):
         """Return leverage of matrix (diagonal of projection matrix).
 
@@ -1228,7 +1229,7 @@ if __name__=='__main__':
 #+end_src
 ** Two-stage Least Squares
 #+begin_src python :tangle metrics_miscellany/estimators.py
-def restricted_tsls(y,X,R=None,r=None,Z=None):
+def restricted_tsls(y,X,R=None,r=None,Z=None,cov='HC3'):
     """
     Estimate b in y = Xb + u s.t. Rb = r.
 
@@ -1278,6 +1279,11 @@ def restricted_tsls(y,X,R=None,r=None,Z=None):
 
     e = y - X@b
 
+    if cov=='HC2': # Use prediction errors
+        e = e/np.sqrt((1-X.leverage))
+    elif cov=='HC3':
+        e = e/(1-X.leverage)
+
     Ze = Z.multiply(e,axis=0)
     Omega = Ze.T@Ze/N
 
@@ -1290,39 +1296,22 @@ def restricted_tsls(y,X,R=None,r=None,Z=None):
 
     Vb = Dinv@(Qxz@Qzzinv@Omega@Qzzinv@Qxz.T)@Dinv/N
 
+    if cov=='HC1':
+        Vb = Vb*(N/(N-k))
+
     return b,lm,Omega,Vb
 #+end_src
 #+begin_src python :tangle metrics_miscellany/estimators.py
-def tsls(X,y,Z,return_Omega=False):
+def tsls(X,y,Z,return_Omega=False,**kwargs):
     """
     Two-stage least squares estimator.
     """
-
-    n,k = X.shape
-
-    Qxz = X.T@Z/n
-
-    zzinv = utils.inv(Z.T@Z/n)
-    b = lstsq(Qxz@zzinv@Qxz.T,Qxz@zzinv@Z.T@y/n,rcond=None)[0]
-
-    b = pd.Series(b.squeeze(),index=X.columns)
-
-    # Cov matrix
-    e = y.squeeze() - X@b
-
-    #Omega = Z.T@(e**2).dg()@Z/n
-    # Rather than forming even a sparse nxn matrix, just use element-by-element multiplication
-    ZTe = Z.T.multiply(e)
-    Omega = ZTe@ZTe.T/n
-
-    #Omega = pd.DataFrame(e.var()*Z.T.values@Z.values/n,columns=Z.columns,index=Z.columns)
+    b,lm,Omega,Vb = restricted_tsls(y,X,Z=Z,**kwargs)
 
     if return_Omega:
         return b,Omega
     else:
-        A = (Qxz@zzinv@Qxz.T).inv
-        V = A@(Qxz@zzinv@Omega@zzinv@Qxz.T)@A.T/n
-        return b,V
+        return b,Vb
 
 #+end_src
 *** TSLS Tests
