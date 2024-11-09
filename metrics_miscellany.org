@@ -387,7 +387,7 @@ def dummies(df,cols,suffix=False):
 ** Index utilities
 #+begin_src python :tangle metrics_miscellany/utils.py
 import pandas as pd
-def drop_vestigial_levels(idx,axis=0,both=False):
+def drop_vestigial_levels(idx,axis=0,both=False,multiindex=True):
     """
     Drop levels that don't vary across the index.
 
@@ -419,7 +419,8 @@ def drop_vestigial_levels(idx,axis=0,both=False):
                 l += 1
                 if l>=L: break
     except AttributeError:
-        pass
+        if multiindex: # Return a multiindex, not an Index
+            idx = pd.MultiIndex.from_tuples(idx.str.split('|').tolist(),names=[idx.name])
 
     if HumptyDumpty:
         df.index = idx
@@ -1261,22 +1262,15 @@ def restricted_tsls(y,X,R=None,r=None,Z=None,cov='HC3'):
 
     Q = N*Qxz@(Qzzinv)@Qxz.T
 
-    if Q.shape==(1,): # Scalar
-        Qinv = 1/Q
-    else:
-        Qinv = Q.inv
+    QRT = dm.concat({'beta':Q,'lm':R.T},axis=1,toplevelname=True)
+    R0 = dm.concat({'beta':R,
+                    'lm':dm.DataMat(index=R.index,columns=R.index).fillna(0)},axis=1,toplevelname=True)
+    lhs = dm.concat({'beta':QRT,'lm':R0})
+    rhs = dm.concat({'beta':Qxz@(Qzzinv)@Z.T@y,'lm':r})
 
-    bstar = Q.lstsq(Qxz@(Qzzinv)@Z.T@y)
+    B = lhs.lstsq(rhs)
 
-    if R is None:
-        b = bstar
-        lm = None
-    else:
-        D = (R@Qinv@R.T).inv
-        b = bstar + Qinv@R.T@D@(r-R@bstar)
-
-        lm = 2*D@(r-R@bstar)
-
+    raise NotImplementedError
     e = y - X@b
 
     if cov=='HC2': # Use prediction errors
