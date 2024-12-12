@@ -419,8 +419,10 @@ def drop_vestigial_levels(idx,axis=0,both=False,multiindex=True):
                 l += 1
                 if l>=L: break
     except AttributeError:
-        if multiindex: # Return a multiindex, not an Index
-            idx = pd.MultiIndex.from_tuples(idx.str.split('|').tolist(),names=[idx.name])
+        pass
+
+    if multiindex and not isinstance(idx,pd.MultiIndex): # Return a multiindex, not an Index
+        idx = pd.MultiIndex.from_tuples(idx.str.split('|').tolist(),names=[idx.name])
 
     if HumptyDumpty:
         df.index = idx
@@ -548,6 +550,12 @@ class DataVec(pd.Series):
         if axis==0: out = out.squeeze()
 
         return out
+
+    def drop_vestigial_levels(self):
+        """Drop index levels that don't vary.
+        """
+        self.index = utils.drop_vestigial_levels(self.index,axis=0)
+        return self
 
 
 #+end_src
@@ -681,6 +689,22 @@ class DataMat(pd.DataFrame):
         else:
             return pd.DataFrame.stack(self,future_stack=True,**kwargs)
 
+    def drop_vestigial_levels(self,axis=None):
+        """Drop index & column levels that don't vary.
+
+        Takes a single optional parameter:
+        - axis (default None): If axis=0, operate on index;
+          if 1, on columns; if None, on both.
+        """
+        if axis is None:
+            self.drop_vestigial_levels(axis=0)
+            self.drop_vestigial_levels(axis=1)
+        elif axis in (0,'index'):
+            self.index = utils.drop_vestigial_levels(self.index,axis=0)
+        elif axis in (1,'columns'):
+            self.columns = utils.drop_vestigial_levels(self.columns,axis=1)
+        return self
+
     # Unary operations
     @cached_property
     def inv(self):
@@ -770,8 +794,14 @@ class DataMat(pd.DataFrame):
         return b
 
     def proj(self,other):
+        """Linear projection of self on other.
+        """
         b = other.lstsq(self)
         return other@b
+
+    def resid(self,other):
+        """Residual from projection of self on other."""
+        return self - self.proj(other)
 
     # Other transformations
     def dummies(self,cols,suffix=''):
@@ -1151,6 +1181,7 @@ from . import gmm
 from . GMM_class import GMM
 from . import utils
 from .datamat import DataMat, DataVec
+from . import datamat as dm
 #+end_src
 ** OLS
 #+begin_src python :tangle metrics_miscellany/estimators.py
@@ -1262,24 +1293,38 @@ def restricted_tsls(y,X,R=None,r=None,Z=None,cov='HC3'):
 
     Q = N*Qxz@(Qzzinv)@Qxz.T
 
-    QRT = dm.concat({'beta':Q,'lm':R.T},axis=1,toplevelname=True)
+    QRT = dm.concat({'beta':Q,'lm':R.T},axis=1,levelnames=True,toplevelname='parms')
     R0 = dm.concat({'beta':R,
-                    'lm':dm.DataMat(index=R.index,columns=R.index).fillna(0)},axis=1,toplevelname=True)
-    lhs = dm.concat({'beta':QRT,'lm':R0})
-    rhs = dm.concat({'beta':Qxz@(Qzzinv)@Z.T@y,'lm':r})
+                    'lm':dm.DataMat(index=R.index,columns=R.index).fillna(0)},
+                   axis=1,levelnames=True,toplevelname='parms')
+    lhs = dm.concat({'beta':QRT,'lm':R0},levelnames=True,toplevelname='parms')
+    rhs = dm.concat({'beta':Qxz@(Qzzinv)@Z.T@y,'lm':r},levelnames=True,toplevelname='parms')
+
+    #assert lhs.rank()>=lhs.shape[1], "Rank condition violated"
 
     B = lhs.lstsq(rhs)
 
-    raise NotImplementedError
-    e = y - X@b
+    XR = dm.concat([X,R.T],axis=1,levelnames=True)
+    ZR = dm.concat([Z,R.T],axis=1,levelnames=True)
+
+    e = y - XR@B
 
     if cov=='HC2': # Use prediction errors
         e = e/np.sqrt((1-X.leverage))
     elif cov=='HC3':
         e = e/(1-X.leverage)
 
-    Ze = Z.multiply(e,axis=0)
+    Ze = ZR.multiply(e,axis=0)
     Omega = Ze.T@Ze/N
+
+    # Redfine Qs to include restrictions
+    Qzz = ZR.T@ZR/N
+    Qxz = XR.T@ZR/N
+
+    if Qzz.shape==(1,): # Scalar
+        Qzzinv = 1/Qzz
+    else:
+        Qzzinv = Qzz.inv
 
     D = Qxz@Qzzinv@Qxz.T
 
@@ -1288,13 +1333,14 @@ def restricted_tsls(y,X,R=None,r=None,Z=None,cov='HC3'):
     else:
         Dinv = D.inv
 
-    Vb = Dinv@(Qxz@Qzzinv@Omega@Qzzinv@Qxz.T)@Dinv/N
+    V = Dinv@(Qxz@Qzzinv@Omega@Qzzinv@Qxz.T)@Dinv/N
 
     if cov=='HC1':
-        Vb = Vb*(N/(N-k))
+        V = V*(N/(N-k))
 
-    return b,lm,Omega,Vb
+    return B,Omega,V
 #+end_src
+
 #+begin_src python :tangle metrics_miscellany/estimators.py
 def tsls(X,y,Z,return_Omega=False,**kwargs):
     """
@@ -1339,4 +1385,22 @@ def test_tsls(N=500000,tol=1e-2):
 if __name__=='__main__':
     b,V,b_,V_ = test_tsls()
 
+#+end_src
+
+* Order statistics
+** Quantiles, with "confidence intervals"
+See William Huber's https://stats.stackexchange.com/questions/122001/confidence-intervals-for-median
+#+begin_src python :tangle metrics_miscellany/order_statistics.py
+from scipy.stats.distributions import binom
+
+def quantile_confidence_intervals(x,q=1/2,minimum_coverage=0.95):
+    α = 1-minimum_coverage
+    x = x.sort_values()
+    n = x.shape[0]
+    p = binom(n,q)
+    u,cu = [(i,p.cdf(i)) for i in range(1,n) if p.cdf(i)>1-α/2 and p.cdf(i-1)<=1-α/2][0]
+    l,cl = [(i-1,p.cdf(i-1)) for i in range(1,n) if p.cdf(i)>α/2 and p.cdf(i-1)<=α/2][0]
+
+    coverage = 1 - cl - (1-cu)
+    return (x.iloc[l],x.iloc[u]),coverage
 #+end_src
