@@ -379,7 +379,7 @@ def dummies(df,cols,suffix=False):
         columns = [tuple([str(c)+suffix for c in t]) for t in v.columns]
     else:
         columns = v.columns
-        
+
     v.columns = MultiIndex.from_tuples(columns,names=idxcols+colcols)
 
     return v
@@ -652,7 +652,7 @@ class DataMat(pd.DataFrame):
         try:
             return pd.DataFrame.__getitem__(self,key)
         except KeyError: # Perhaps key was for an index?
-            return __getitem__(self,(key,))
+            return pd.DataFrame.__getitem__(self,(key,))
 
     def set_index(self,columns,levels=None,inplace=False):
         """Set the DataMat index using existing columns.
@@ -813,7 +813,7 @@ class DataMat(pd.DataFrame):
 
     # Other transformations
     def dummies(self,cols,suffix=''):
-        return DataMat(utils.dummies(self,cols,suffix=suffix))
+        return DataMat(utils.dummies(pd.DataFrame(self),cols,suffix=suffix))
 
     def concat(self,other,axis=0,levelnames=False,toplevelname='v',suffixer='_',
                drop_vestigial_levels=False,**kwargs):
