@@ -524,6 +524,14 @@ class DataVec(pd.Series):
     def norm(self,ord=None,**kwargs):
         return np.linalg.norm(self,ord,**kwargs)
 
+    def inv(self):
+        """Inverse of a vector defined for 1-vector case.
+        """
+        if self.shape[0]==1:
+            return 1/self.iloc[0]
+        else:
+            raise ValueError("Inverse of DataVec not defined.")
+
     # Binary operations
     def outer(self,other):
         """Outer product of two series (vectors).
