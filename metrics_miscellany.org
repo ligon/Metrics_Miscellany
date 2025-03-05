@@ -347,7 +347,6 @@ def cholesky(A):
 #+end_src
 ** DataFrame/Mat Manipulations
 #+begin_src python :tangle metrics_miscellany/utils.py
-from cfe.df_utils import use_indices
 from pandas import concat, get_dummies, MultiIndex
 
 def dummies(df,cols,suffix=False):
@@ -362,7 +361,11 @@ def dummies(df,cols,suffix=False):
     idxcols = list(set(df.index.names).intersection(cols))
     colcols = list(set(cols).difference(idxcols))
 
-    v = concat([use_indices(df,idxcols),df[colcols]],axis=1)
+    if len(idxcols):
+        idx = use_indices(df,idxcols)
+        v = concat([idx,df[colcols]],axis=1)
+    else:
+        v = df[colcols]
 
     usecols = []
     for s in idxcols+colcols:
@@ -384,9 +387,40 @@ def dummies(df,cols,suffix=False):
 
     return v
 #+end_src
+
+*** Test of =dummies=
+#+begin_src python :tangle metrics_miscellany/test/test_dummies.py
+from metrics_miscellany.utils import dummies, use_indices
+import pandas as pd
+
+def test_dummies():
+    idx = pd.MultiIndex.from_tuples([(i,) for i in range(4)],names=['i'])
+    foo = pd.DataFrame({'cat':['a','b','b','c']},index=idx)
+
+    assert dummies(foo,['i']).shape == (4,4)
+    assert dummies(foo,['cat']).shape == (4,3)
+
+if __name__=='__main__':
+    test_dummies()
+
+#+end_src
+
 ** Index utilities
 #+begin_src python :tangle metrics_miscellany/utils.py
 import pandas as pd
+
+def use_indices(df,idxnames):
+    if len(set(idxnames).intersection(df.index.names))==0:
+        return pd.DataFrame(index=df.index)
+
+    try:
+        idx = df.index
+        df = df.reset_index()[idxnames]
+        df.index = idx
+        return df
+    except InvalidIndexError:
+        return df
+
 def drop_vestigial_levels(idx,axis=0,both=False,multiindex=True):
     """
     Drop levels that don't vary across the index.
@@ -433,7 +467,27 @@ def drop_vestigial_levels(idx,axis=0,both=False,multiindex=True):
     return idx
 
 #+end_src
+*** Test of =use_indices=
+#+begin_src python :tangle metrics_miscellany/test/test_use_indices.py
+import pandas as pd
+from metrics_miscellany.utils import use_indices
+import numpy as np
 
+def test_use_indices():
+    idx = pd.MultiIndex.from_tuples([(i,) for i in range(4)],names=['i'])
+    foo = pd.DataFrame({'cat':['a','b','b','c']},index=idx)
+
+    assert use_indices(foo,['i']).shape[0]==foo.shape[0]
+    assert use_indices(foo,['cat']).size==0
+    assert use_indices(foo,['cat','i']).shape[0]==foo.shape[0]
+
+    assert np.all(use_indices(foo,['i']).index==idx)
+
+if __name__=='__main__':
+    test_use_indices()
+
+
+#+end_src
 * datamat
 ** DataVec class
 #+begin_src python :tangle metrics_miscellany/datamat.py
