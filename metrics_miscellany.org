@@ -141,7 +141,7 @@ def kron(A,B,sparse=False):
     if isinstance(A,pd.DataFrame):
         a = A.values
         if isinstance(B,pd.DataFrame):
-            columns = pd.MultiIndex.from_tuples([(*i,*j) for i in A.columns for j in B.columns])
+            columns = pd.MultiIndex.from_tuples([(*i,*j) for i in A.columns for j in B.columns],                                               names=A.columns.names+B.columns.names)
             b = B.values
         else:
             columns = A.columns.remove_unused_levels()
@@ -772,9 +772,16 @@ class DataMat(pd.DataFrame):
     def inv(self):
         return DataMat(matrix_inv(self))
 
-    @cached_property
     def norm(self,ord=None,**kwargs):
         return np.linalg.norm(self,ord,**kwargs)
+
+    @cached_property
+    def det(self):
+        return np.linalg.det(self)
+
+    @cached_property
+    def trace(self):
+        return np.trace(self)
 
     def dg(self):
         """Extract diagonal from square matrix.
@@ -863,7 +870,7 @@ class DataMat(pd.DataFrame):
 
     def resid(self,other):
         """Residual from projection of self on other."""
-        return self - self.proj(other)
+        return self.squeeze() - self.proj(other)
 
     # Other transformations
     def dummies(self,cols,suffix=''):
@@ -1448,6 +1455,214 @@ if __name__=='__main__':
     b,V,b_,V_ = test_tsls()
 
 #+end_src
+** Factor Analysis (MLE)
+This routine adapted from sklearn's FactorAnalysis, but modified to permit missing values.
+#+begin_src python :tangle metrics_miscellany/estimators.py
+def factor_analysis(X,n_components=None,noise_variance_init=None,
+                    max_its=1000,tol=1e-2,
+                    svd_method='eig'):
+    """Fit the FactorAnalysis model to X using SVD based MLE approach.
+
+    Parameters
+    ----------
+    X : array-like of shape (n_samples, n_features) Training data.
+
+    n_components : Proposed rank (number of factors)
+    """
+
+    n_samples, n_features = X.shape
+
+    assert n_samples >= n_features
+
+    if n_components is None:
+        n_components = n_features
+
+    xbar = X.mean(axis=0)
+    X = X - xbar
+
+    # some constant terms
+    nsqrt = np.sqrt(n_samples)
+    llconst = n_features * np.log(2.0 * np.pi) + n_components
+    var = X.var()
+
+    if noise_variance_init is None:
+        psi = np.ones(n_features)
+    else:
+        if len(noise_variance_init) != n_features:
+            raise ValueError(
+                    "noise_variance_init dimension does not accord "
+                    "with number of features : %d != %d"
+                    % (len(noise_variance_init), n_features)
+            )
+        psi = np.array(noise_variance_init)
+
+    loglike = []
+    old_ll = -np.inf
+    SMALL = 1e-12
+
+    def squared_norm(x):
+        return np.linalg.norm(x)**2
+
+    def self_inner(X,min_obs=None):
+        """Compute inner product X.T@X, allowing for possibility of missing data."""
+        n,m=X.shape
+
+        if n<m:
+            axis=1
+            N=m
+        else:
+            axis=0
+            N=n
+
+        mX = np.ma.masked_invalid(X)
+
+        xbar = np.mean(mX,axis=axis)
+
+        if axis:
+            C=(N-1)*np.ma.cov(mX)
+        else:
+            C=(N-1)*np.ma.cov(mX.T)
+
+        return (C + N*np.outer(xbar,xbar)).data
+
+    # we'll modify svd outputs to return unexplained variance
+    # to allow for unified computation of loglikelihood
+    if svd_method == "lapack":
+
+        def my_svd(X):
+            _, s, Vt = linalg.svd(X, full_matrices=False, check_finite=False)
+            return (
+                s[:n_components],
+                Vt[:n_components],
+                squared_norm(s[n_components:]),
+            )
+
+    elif svd_method == "randomized":
+        random_state = check_random_state(self.random_state)
+
+        def my_svd(X):
+            _, s, Vt = randomized_svd(
+                X,
+                n_components,
+                random_state=random_state,
+                n_iter=self.iterated_power,
+            )
+            return s, Vt, squared_norm(X) - squared_norm(s)
+
+    elif svd_method == 'eig':
+
+        def my_svd(P):
+
+            sigmas,v=np.linalg.eigh(P)
+            vt = v.T
+
+            order=np.argsort(-sigmas)
+            sigmas=sigmas[order]
+
+            # Truncate rank of representation using Kaiser criterion (positive eigenvalues)
+            vt=vt[order,:]
+            vt=vt[sigmas>0,:]
+            s=np.sqrt(sigmas[sigmas>0])
+
+            if n_components is not None and len(s) > n_components:
+                vt=vt[:n_components,:]
+                s=s[:n_components]
+
+            r=len(s)
+
+            return s, vt, squared_norm(P) - squared_norm(s)
+
+    P = self_inner(X)
+    for i in range(max_its):
+        # SMALL helps numerics
+        sqrt_psi = np.sqrt(psi) + SMALL
+        s, Vt, unexp_var = my_svd(P@np.diag(1/(psi * n_samples)))
+        s **= 2
+        # Use 'maximum' here to avoid sqrt problems.
+        W = np.sqrt(np.maximum(s - 1.0, 0.0))[:, np.newaxis] * Vt
+        del Vt
+        W = W.squeeze()*sqrt_psi
+
+        # loglikelihood
+        ll = llconst + np.sum(np.log(s))
+        ll += unexp_var + np.sum(np.log(psi))
+        ll *= -n_samples / 2.0
+        loglike.append(ll)
+        if (ll - old_ll) < tol:
+            break
+        old_ll = ll
+
+        psi = np.maximum(var - np.sum(W**2, axis=0), SMALL)
+    else:
+        if max_its==0: # Use hill-climbing
+            def ll():
+                ll = llconst + np.sum(np.log(s))
+                ll += unexp_var + np.sum(np.log(psi))
+                ll *= -n_samples / 2.0
+
+        else:
+            warnings.warn(
+                "FactorAnalysis did not converge."
+                + " You might want"
+                + " to increase the number of iterations.",
+                ConvergenceWarning,
+            )
+
+    return W, psi
+
+#+end_src
+
+
+#+begin_src python
+from scipy.optimize import minimize
+
+def factor_analysis(V,r=1,psi=None,method='mle',tol=1e-12):
+
+    p = V.shape[0]
+
+    def factor_loadings(Psi):
+        U = V - Psi.dg()
+        s2,u = U.eig()
+        s2 = s2.iloc[-r:]
+        u = u.iloc[:,-r:]
+
+        W = np.sqrt(s2.dg())@u.T
+
+        return W
+
+    def ll(psi):
+        Psi = dm.DataMat(np.diag(psi**2))
+        W = factor_loadings(Psi)
+
+        Vhat = W.T@W + Psi
+
+        return -(p/2)*np.log(2*np.pi) - np.log(Vhat.det)/2 - (Vhat.inv@V).trace/2
+
+    if psi is None or np.linalg.norm(psi)<tol:
+        psi = np.ones(p)
+
+    if method=='mle':
+        out = minimize(lambda x: -ll(x),x0=psi)
+        if not out.success:
+            print(out)
+
+        Psi = dm.DataMat(np.diag(out.x**2))
+    else:  # Iterative approach
+        Psi = dm.DataMat(np.diag(psi**2))
+        oldPsi = 0
+        its = 0
+        while (Psi-oldPsi).norm()>1e-8:
+            its += 1
+            print(its)
+            W = factor_loadings(Psi)
+            oldPsi = Psi
+            Psi = (V - W.T@W).dg().dg()
+
+
+    W = factor_loadings(Psi)
+
+    return W,Psi
+#+end_src
 
 * Order statistics
 ** Quantiles, with "confidence intervals"
@@ -1465,4 +1680,74 @@ def quantile_confidence_intervals(x,q=1/2,minimum_coverage=0.95):
 
     coverage = 1 - cl - (1-cu)
     return (x.iloc[l],x.iloc[u]),coverage
+#+end_src
+* Kernel Methods
+#+begin_src python :tangle metrics_miscellany/kernel_methods.py
+import pandas as pd
+from metrics_miscellany import datamat as dm
+import numpy as np
+
+sqrt3 = np.sqrt(3)  # Avoid repeated evaluation of this for speed...
+sqrt2pi = np.sqrt(2*np.pi)
+
+def rectangular(u):
+    return (np.abs(u) < sqrt3)/(2*sqrt3)  # Rectangular kernel
+
+def gaussian(u):
+    return np.exp(-(u**2)/2)/sqrt2pi # Gaussian kernel
+
+def gram(X,kernel=gaussian,bw=1):
+    """
+    Construct Gram matrix from vector of data X.
+    """
+    try:
+        idx = X.index
+        df = True
+        x = X.values
+    except AttributeError:
+        df = False
+        x = X
+
+    assert len(x.shape)==1
+    K = kernel((x.reshape((-1,1)) - x.reshape((1,-1)))/bw)
+
+    if df:
+        if isinstance(X,(dm.DataVec,dm.DataMat)):
+            K = dm.DataMat(K,index=X.index,columns=X.index)
+        elif isinstance(X,(pd.Series,pd.DataFrame)):
+            K = pd.DataFrame(K,index=X.index,columns=X.index)
+
+    return K
+
+
+
+def kernel_regression(X,y,bw,kernel=gaussian):
+    """
+    Use data (X,y) to estimate E(y|x), using bandwidth bw.
+    """
+    def mhat(x):
+        S = kernel((X-x)/bw) # "Smooths"
+
+        return S.dot(y)/S.sum()
+
+    return mhat
+
+def kernel_regression_variance(X,y,bw,kernel=gaussian):
+    """
+    Use data (X,y) to estimate E((y-m(x))^2|x), using bandwidth bw.
+    """
+    # Construct leave-one-out residuals
+    K = gram(X,bw=bw,kernel=kernel)
+    Km = K - K.dg().dg()
+
+    e2 = (y - (K@y)/K.sum(axis=1))**2
+    Ksum = K.sum().sum()
+
+    def sigmahat(x):
+
+        S = kernel((X-x)/bw) # "Smooths"
+
+        return (S**2).dot(e2)/Ksum
+
+    return sigmahat
 #+end_src
