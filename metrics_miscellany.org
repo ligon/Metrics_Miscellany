@@ -1663,6 +1663,61 @@ def factor_analysis(V,r=1,psi=None,method='mle',tol=1e-12):
 
     return W,Psi
 #+end_src
+** Frisch-Waugh-Lovell Regression
+#+begin_src python :tangle metrics_miscellany/estimators.py
+def fwl_regression_step(D,X):
+    """Regress each datamat in dictionary D on X.
+       Return a dictionary of residuals, and a dictionary of least-squares coefficients.
+    """
+    b = {}
+    u = {}
+    if len(D)==0: return D,{}
+
+    for k,v in D.items():
+        b[k] = X.lstsq(v)
+        u[k] = dm.DataMat(v.resid(X))
+
+    return u,b
+#+end_src
+
+#+begin_src python :tangle metrics_miscellany/estimators.py
+def fwl_regression(D,B=None,U=None):
+    """Regress each datamat in dictionary D on the last element X of D.
+       Iterate.
+
+       Return a dictionary of residuals, and a dictionary of least-squares coefficients.
+    """
+    if B is None: B={}
+    if U is None: U={}
+
+    if len(D)==0:
+        return U,B
+    else:
+        xk,x = D.popitem()
+        D,B[xk] = fwl_regression_step(D,x)
+        U[xk] = D
+        return fwl_regression(D,B=B,U=U)
+#+end_src
+*** Test
+#+begin_src python :tangle metrics_miscellany/test/test_fwl_regression.py
+import metrics_miscellany.datamat as dm
+from metrics_miscellany.estimators import fwl_regression
+import numpy as np
+
+N = 100
+
+D = {}
+D['Constant'] = dm.DataMat(np.ones(N))
+D['a'] = dm.DataMat(np.random.randn(N,2))
+D['b'] = D['a']*2 + np.random.randn(N,2)
+D['y'] = dm.DataMat(D['a']@np.array((1,1)) + + D['b']@np.array((2,2)) + np.random.randn(N,)/1000,name='y')
+
+# Reverse order of dict
+D = dict([D.popitem() for i in range(len(D))])
+
+U,B = fwl_regression(D)
+#+end_src
+
 
 * Order statistics
 ** Quantiles, with "confidence intervals"
