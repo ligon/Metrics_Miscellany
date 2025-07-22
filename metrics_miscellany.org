@@ -492,6 +492,7 @@ if __name__=='__main__':
 ** DataVec class
 #+begin_src python :tangle metrics_miscellany/datamat.py
 import pandas as pd
+from pandas import NA
 import numpy as np
 from metrics_miscellany.utils import matrix_product, diag
 from metrics_miscellany.utils import inv as matrix_inv
@@ -597,6 +598,21 @@ class DataVec(pd.Series):
         b = other.lstsq(self)
         return other@b
 
+    def lstsq(self,other):
+        rslt = np.linalg.lstsq(self,other,rcond=None)
+
+        if len(rslt[0].shape)<2 or rslt[0].shape[1]==1:
+            b = DataVec(rslt[0],index=self.columns)
+        else:
+            b = DataMat(rslt[0],index=self.columns,columns=other.columns)
+
+        return b
+
+
+    def resid(self,other):
+        """Residual from projection of self on other."""
+        return self.squeeze() - self.proj(other)
+
 
     # Other manipulations
     def concat(self,other,axis=0,levelnames=False,toplevelname='v',suffixer='_',
@@ -612,6 +628,9 @@ class DataVec(pd.Series):
         if axis==0: out = out.squeeze()
 
         return out
+
+    def dummies(self,cols,suffix=''):
+        return DataMat(utils.dummies(pd.DataFrame(self),cols,suffix=suffix))
 
     def drop_vestigial_levels(self):
         """Drop index levels that don't vary.
@@ -1691,13 +1710,101 @@ def fwl_regression(D,B=None,U=None):
     if U is None: U={}
 
     if len(D)==0:
+        return {},{}
+    elif len(D)==1:
         return U,B
     else:
         xk,x = D.popitem()
         D,B[xk] = fwl_regression_step(D,x)
-        U[xk] = D
+        U[xk] = D.copy()
         return fwl_regression(D,B=B,U=U)
 #+end_src
+
+
+*** Unit tests for =fwl_regression= and =reconstruct_coefficients_from_fwl=.
+
+Here are unit tests for both functions:
+
+#+begin_src python :tangle metrics_miscellany/test/test_fwl.py
+import unittest
+import numpy as np
+import pandas as pd
+from metrics_miscellany.estimators import fwl_regression, reconstruct_coefficients_from_fwl
+from metrics_miscellany import datamat as dm
+
+class TestFWLRegression(unittest.TestCase):
+    def setUp(self):
+        # Create sample data for testing
+        np.random.seed(42)
+        n = 100
+
+        # Create independent variables
+        X1 = np.random.normal(0, 1, n)
+        X2 = np.random.normal(0, 1, n) + 0.5 * X1
+        X3 = np.random.normal(0, 1, n) + 0.3 * X1 + 0.2 * X2
+
+        # Create dependent variable
+        Y = 2 * X1 + 1.5 * X2 + 0.5 * X3 + np.random.normal(0, 1, n)
+
+        # Convert to DataMat objects
+        self.D = {
+            'Y': dm.DataMat(Y),
+            'X1': dm.DataMat(X1),
+            'X2': dm.DataMat(X2),
+            'X3': dm.DataMat(X3)
+        }
+
+        # Direct OLS for comparison
+        X = np.column_stack([np.ones(n), X1, X2, X3])
+        self.direct_coefs = np.linalg.lstsq(X, Y, rcond=None)[0][1:]  # Skip intercept
+
+    def test_fwl_regression(self):
+        # Run FWL regression
+        U, B = fwl_regression(self.D.copy())
+
+        # Check if U & B contains entries for all variables
+        self.assertEqual(set(B.keys()), set(U.keys()))
+        
+        # Test that the last stage regression gives correct coefficients
+        # The last variable (X3) should have the coefficient of Y on X3 after controlling for X1, X2
+        X3_coef = list(B['Y'].values())[0]  # Assuming only one value in last stage
+        self.assertAlmostEqual(X3_coef, self.direct_coefs[2], places=2)
+
+    def test_reconstruct_coefficients(self):
+        # Run FWL regression
+        U, B = fwl_regression(self.D.copy())
+
+        # Reconstruct coefficients
+        reconstructed = reconstruct_coefficients_from_fwl('Y', B, U)
+
+        # Check if reconstructed coefficients match direct OLS
+        for i, var in enumerate(['X3', 'X2', 'X1']):
+            if var in reconstructed:
+                self.assertAlmostEqual(reconstructed[var], self.direct_coefs[i], places=2)
+
+    def test_empty_dict(self):
+        # Test with empty dictionary
+        U, B = fwl_regression({})
+        self.assertEqual(U, {})
+        self.assertEqual(B, {})
+
+        # Test reconstruction with empty results
+        reconstructed = reconstruct_coefficients_from_fwl('Y', {}, {})
+        self.assertEqual(reconstructed, {})
+
+    def test_single_variable(self):
+        # Test with a single variable
+        D_single = {'Y': self.D['Y']}
+        U, B = fwl_regression(D_single)
+        self.assertEqual(U, {})
+        self.assertEqual(B, {})
+
+if __name__ == '__main__':
+    unittest.main()
+#+end_src
+
+
+
 *** Test
 #+begin_src python :tangle metrics_miscellany/test/test_fwl_regression.py
 import metrics_miscellany.datamat as dm
