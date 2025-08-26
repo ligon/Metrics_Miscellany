@@ -349,6 +349,37 @@ def cholesky(A):
 #+begin_src python :tangle metrics_miscellany/utils.py
 from pandas import concat, get_dummies, MultiIndex
 
+def drop_missing(X,infinities=False):
+    """
+    Return tuple of pd.DataFrames in X with any
+    missing observations dropped.  Assumes common index.
+
+    If infinities is false values of plus or minus infinity are
+    treated as missing values.
+    """
+
+    if isinstance(X,dict):
+        return dict(zip(X.keys(),drop_missing(list(X.values()),infinities=False)))
+
+    for i,x in enumerate(X):
+        if type(x)==pd.Series and x.name is None:
+            x.name = i
+
+    foo=pd.concat(X,axis=1)
+    if not infinities:
+        foo.replace(np.inf,np.nan)
+        foo.replace(-np.inf,np.nan)
+
+    foo = foo.dropna(how='any')
+
+    assert len(set(foo.columns))==len(foo.columns) # Column names must be unique!
+
+    Y=[]
+    for x in X:
+        Y.append(foo.loc[:,pd.DataFrame(x).columns])
+
+    return tuple(Y)
+
 def dummies(df,cols,suffix=False):
     """From a dataframe df, construct an array of indicator (dummy) variables,
     with a column for every unique row df[cols]. Note that the list cols can
@@ -1254,7 +1285,66 @@ def reduced_rank_regression(X,Y,r):
 
 #+end_src
 
+* Tests
+** Cragg-Donald Reduced Rank Test
+#+begin_src python :tangle metrics_miscellany/tests.py
+def cragg_donald(X,Q):
+    """
+    Cragg-Donald (1997) test for weak instruments.
 
+    In multivariate regression
+
+    X = Q\Pi + v
+
+    We test null hypothesis that the rank of \Pi is less than the rank of X.
+
+    Returns a statistic distributed chi2, along with relevant p-value
+    """
+    teststat = (X.T@X.resid(Q)).inv@(X.T@X.proj(Q))
+
+    teststat = teststat.eig()[0].min()
+
+    n,k = Q.shape
+
+    teststat = (n-k)*teststat
+
+    pvalue = 1 - chi2(n-X.shape[1]+1).cdf(teststat)
+
+    return teststat,pvalue
+
+#+end_src
+*** Test of Cragg-Donald
+#+begin_src python metrics_miscellany/test/test_cragg_donald.py
+"""Check size of cragg_donald reduced rank test.
+"""
+import metrics_miscellany.datamat as dm
+from metrics_miscellany.tests import cragg_donald
+from scipy.stats.distributions import norm, chi2
+
+def test_size(n=1000,m=8,l=10,tol=1e-4):
+    Pi = norm.rvs(size=(l,m))
+    Z = dm.DataMat(norm.rvs(size=(n,l)))
+
+    its = 0
+    laststat = -1
+    stat = 0
+    Stats = []
+    Ps = []
+    while its<=30 or np.abs(stat-laststat)>tol:
+        its += 1
+        laststat = stat
+        U = dm.DataMat(norm.rvs(size=(n,m)))
+        X = Z@Pi + U
+        s,p = cragg_donald(X,Z)
+        Stats.append(s)
+        Ps.append(p)
+        stat = p/its + stat*(its-1)/its
+        if its % 12 == 1:
+            print(f"Iteration {its}, alpha={stat:4.4f}")
+
+
+
+#+end_src
 
 * Estimators
 ** Preliminaries
