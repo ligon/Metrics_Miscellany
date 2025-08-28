@@ -164,54 +164,82 @@ def kron(A,B,sparse=False):
 #+end_src
 *** Binary Operation Tests
 #+begin_src python :tangle metrics_miscellany/test/test_index_multiplication.py
+import pytest
 import metrics_miscellany.datamat as dm
 import pandas as pd
 import numpy as np
 
-idx = pd.MultiIndex.from_tuples([(0,0,0),(0,0,1),(1,0,0),(1,0,1)],names=['i','j','k'])
-X = dm.DataMat([[1,2,3,4]],columns=idx,idxnames=['l'])
-Y = dm.DataMat([[1,2,3,0]],columns=idx.droplevel('j'),idxnames='m').T
+@pytest.fixture
+def setup_indices():
+    idx = pd.MultiIndex.from_tuples([(0,0,0),(0,0,1),(1,0,0),(1,0,1)], names=['i','j','k'])
+    return idx
 
-assert (X@Y).index.names == ['l']
+@pytest.fixture
+def setup_data_matrices(setup_indices):
+    X = dm.DataMat([[1,2,3,4]], columns=setup_indices, idxnames=['l'])
+    Y = dm.DataMat([[1,2,3,0]], columns=setup_indices.droplevel('j'), idxnames='m').T
+    return X, Y
 
-(X.matmul(Y,strict=True))
-#+end_src
-#+begin_src python :tangle metrics_miscellany/test/test_binary_ops.py
-import metrics_miscellany.datamat as dm
-import pandas as pd
-import numpy as np
-
-def test_matmul(A,B):
-    C = A@B
-    assert isinstance(C,type(A))
-
-    return C
-
-def test_matmul_matvec(A,b):
-    C = A@b
-    assert isinstance(C,type(b))
-
-    return C
+def test_index_multiplication(setup_data_matrices):
+    X, Y = setup_data_matrices
+    result = X @ Y
+    assert result.index.names == ['l']
+    X.matmul(Y, strict=True)
 
 if __name__=='__main__':
+    pytest.main()
+#+end_src
+
+#+begin_src python :tangle metrics_miscellany/test/test_binary_ops.py
+import pytest
+import metrics_miscellany.datamat as dm
+import pandas as pd
+import numpy as np
+
+@pytest.fixture
+def numpy_matrices():
     A = np.array([[1,2],[3,4]])
     B = np.array([[1,1]]).T
-    Cnp = test_matmul(A,B)
+    return A, B
 
+@pytest.fixture
+def pandas_matrices():
     A = pd.DataFrame([[1,2],[3,4]])
     B = pd.DataFrame([[1,1]]).T
-    Cpd = test_matmul(A,B)
+    return A, B
 
+@pytest.fixture
+def datamat_matrices():
     A = dm.DataMat([[1,2],[3,4]])
     B = dm.DataMat([[1,1]]).T
-    Cdm = test_matmul(A,B)
+    return A, B
 
+def test_matmul(numpy_matrices, pandas_matrices, datamat_matrices):
+    for A, B in [numpy_matrices, pandas_matrices, datamat_matrices]:
+        C = A @ B
+        assert isinstance(C, type(A))
+
+@pytest.fixture
+def datamat_vector():
+    A = dm.DataMat([[1,2],[3,4]])
     b = dm.DataVec([1,1])
-    c = test_matmul_matvec(A,b)
+    return A, b
 
+@pytest.fixture
+def pandas_vector():
+    A = dm.DataMat([[1,2],[3,4]])
     b = pd.Series([1,1])
-    c = test_matmul_matvec(A,b)
+    return A, b
+
+def test_matmul_matvec(datamat_vector, pandas_vector):
+    for A, b in [datamat_vector, pandas_vector]:
+        C = A @ b
+        assert isinstance(C, type(b))
+
+if __name__=='__main__':
+    pytest.main()
 #+end_src
+
 ** Matrix Decompositions
 #+begin_src python :tangle metrics_miscellany/utils.py
 def heteropca(C,r=1,max_its=50,tol=1e-3,verbose=False):
@@ -887,7 +915,8 @@ class DataMat(pd.DataFrame):
     # Binary operations
     def matmul(self,other,strict=False,fillmiss=False):
         Y = matrix_product(self,other,strict=strict,fillmiss=fillmiss)
-        if len(Y.shape) <= 1:
+
+        if len(other.shape)<=1:
             return DataVec(Y)
         else:
             return DataMat(Y)
@@ -1405,19 +1434,24 @@ def restricted_tsls(y,X,R=None,r=None,Z=None,cov='HC3'):
 
     Q = N*Qxz@(Qzzinv)@Qxz.T
 
-    QRT = dm.concat({'beta':Q,'lm':R.T},axis=1,levelnames=True,toplevelname='parms')
-    R0 = dm.concat({'beta':R,
-                    'lm':dm.DataMat(index=R.index,columns=R.index).fillna(0)},
-                   axis=1,levelnames=True,toplevelname='parms')
-    lhs = dm.concat({'beta':QRT,'lm':R0},levelnames=True,toplevelname='parms')
-    rhs = dm.concat({'beta':Qxz@(Qzzinv)@Z.T@y,'lm':r},levelnames=True,toplevelname='parms')
+    if R is not None:
+        QRT = dm.concat({'beta':Q,'lm':R.T},axis=1,levelnames=True,toplevelname='parms')
+        R0 = dm.concat({'beta':R,
+                        'lm':dm.DataMat(index=R.index,columns=R.index).fillna(0)},
+                       axis=1,levelnames=True,toplevelname='parms')
+        lhs = dm.concat({'beta':QRT,'lm':R0},levelnames=True,toplevelname='parms')
+        rhs = dm.concat({'beta':Qxz@(Qzzinv)@Z.T@y,'lm':r},levelnames=True,toplevelname='parms')
+        XR = dm.concat([X,R.T],axis=1,levelnames=True)
+        ZR = dm.concat([Z,R.T],axis=1,levelnames=True)
+    else:
+        lhs = Q
+        rhs = Qxz@(Qzzinv)@Z.T@y
+        XR = X
+        ZR = Z
 
     #assert lhs.rank()>=lhs.shape[1], "Rank condition violated"
 
     B = lhs.lstsq(rhs)
-
-    XR = dm.concat([X,R.T],axis=1,levelnames=True)
-    ZR = dm.concat([Z,R.T],axis=1,levelnames=True)
 
     e = y - XR@B
 
@@ -1450,7 +1484,10 @@ def restricted_tsls(y,X,R=None,r=None,Z=None,cov='HC3'):
     if cov=='HC1':
         V = V*(N/(N-k))
 
-    return B,Omega,V
+    if R is None:
+        return B,Omega,V
+    else:
+        return B,lm,Omega,V
 #+end_src
 
 #+begin_src python :tangle metrics_miscellany/estimators.py
@@ -1458,7 +1495,7 @@ def tsls(X,y,Z,return_Omega=False,**kwargs):
     """
     Two-stage least squares estimator.
     """
-    b,lm,Omega,Vb = restricted_tsls(y,X,Z=Z,**kwargs)
+    b,Omega,Vb = restricted_tsls(y,X,Z=Z,**kwargs)
 
     if return_Omega:
         return b,Omega
@@ -1486,16 +1523,16 @@ def test_tsls(N=500000,tol=1e-2):
 
     y = (x@beta).squeeze() + u
 
-    b,lm,Omega,V = restricted_tsls(y,x,Z=z)
+    b,Omega,V = restricted_tsls(y,x,Z=z)
     b_,V_ = tsls(x,y,z)
     #b,V = ols(x,y)
 
     assert np.allclose(b,beta.squeeze(),atol=tol)
 
-    return b,V,b_,V_
+    #return b,V,b_,V_
 
 if __name__=='__main__':
-    b,V,b_,V_ = test_tsls()
+    test_tsls()
 
 #+end_src
 ** Factor Analysis (MLE)
@@ -3000,7 +3037,7 @@ import scipy.stats.distributions as iid
 from scipy import stats
 import matplotlib.pyplot as plt
 
-N = 3000
+N = 10000
 m = 10
 r = 3
 q = m - r
