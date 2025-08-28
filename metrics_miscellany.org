@@ -15,13 +15,10 @@ def inv(A):
 
 def pinv(A):
     """Moore-Penrose pseudo-inverse of A.
-<<<<<<< HEAD
 
     >>> A = pd.DataFrame([[1,2,3],[4,5,6]])
     >>> np.allclose(A@pinv(A),np.eye(2))
     True
-=======
->>>>>>> parent of 9e116cc (Doctests for pinv.)
     """
     if np.isscalar(A): A = pd.DataFrame(np.array([[A]]))
 
@@ -890,7 +887,7 @@ class DataMat(pd.DataFrame):
     # Binary operations
     def matmul(self,other,strict=False,fillmiss=False):
         Y = matrix_product(self,other,strict=strict,fillmiss=fillmiss)
-        if len(Y.shape) <= 1 or Y.shape[1]==1:
+        if len(Y.shape) <= 1:
             return DataVec(Y)
         else:
             return DataMat(Y)
@@ -1283,67 +1280,6 @@ def reduced_rank_regression(X,Y,r):
 
 #+end_src
 
-* Tests
-** Cragg-Donald Reduced Rank Test
-#+begin_src python :tangle metrics_miscellany/tests.py
-def cragg_donald(X,Q):
-    """
-    Cragg-Donald (1997) test for weak instruments.
-
-    In multivariate regression
-
-    X = Q\Pi + v
-
-    We test null hypothesis that the rank of \Pi is less than the rank of X.
-
-    Returns a statistic distributed chi2, along with relevant p-value
-    """
-    teststat = (X.T@X.resid(Q)).inv@(X.T@X.proj(Q))
-
-    teststat = teststat.eig()[0].min()
-
-    n,k = Q.shape
-
-    teststat = (n-k)*teststat
-
-    pvalue = 1 - chi2(n-X.shape[1]+1).cdf(teststat)
-
-    return teststat,pvalue
-
-#+end_src
-*** Test of Cragg-Donald
-#+begin_src python metrics_miscellany/test/test_cragg_donald.py
-"""Check size of cragg_donald reduced rank test.
-"""
-import metrics_miscellany.datamat as dm
-from metrics_miscellany.tests import cragg_donald
-from scipy.stats.distributions import norm, chi2
-
-def test_size(n=1000,m=8,l=10,tol=1e-4):
-    Pi = norm.rvs(size=(l,m))
-    Z = dm.DataMat(norm.rvs(size=(n,l)))
-
-    its = 0
-    laststat = -1
-    stat = 0
-    Stats = []
-    Ps = []
-    while its<=30 or np.abs(stat-laststat)>tol:
-        its += 1
-        laststat = stat
-        U = dm.DataMat(norm.rvs(size=(n,m)))
-        X = Z@Pi + U
-        s,p = cragg_donald(X,Z)
-        Stats.append(s)
-        Ps.append(p)
-        stat = p/its + stat*(its-1)/its
-        if its % 12 == 1:
-            print(f"Iteration {its}, alpha={stat:4.4f}")
-
-
-
-#+end_src
-
 * Estimators
 ** Preliminaries
 #+begin_src python :tangle metrics_miscellany/estimators.py
@@ -1719,7 +1655,6 @@ def factor_analysis(X,n_components=None,noise_variance_init=None,
 
 #+end_src
 
-<<<<<<< HEAD
 
 #+begin_src python
 from scipy.optimize import minimize
@@ -1809,6 +1744,59 @@ def fwl_regression(D,B=None,U=None):
         return fwl_regression(D,B=B,U=U)
 #+end_src
 
+#+begin_src python :tangle metrics_miscellany/estimators.py
+def reconstruct_coefficients_from_fwl(B: dict,as_dict=False):
+    """
+    Reconstructs OLS coefficient vectors from FWL inputs,
+    generalized for matrix regressors.
+    """
+    # ## 1. Infer the dependent variable name ##
+    top_level_keys = set(B.keys())
+    if len(top_level_keys)==0: return {}
+
+    # Arbitrarily pick the first variable's sub-dictionary to inspect its keys
+    first_var_key = next(iter(B))
+    all_nested_keys = set(B[first_var_key].keys())
+
+    # The dependent variable is the key in the nested dict that is NOT a top-level key
+    dep_var_set = all_nested_keys - top_level_keys
+    if len(dep_var_set) != 1:
+        raise ValueError("Could not uniquely determine the dependent variable name.")
+    dep_var_name = dep_var_set.pop()
+
+    # ## 2. Proceed with the iterative reconstruction ##
+    ordered_vars = list(B.keys())
+    p = len(ordered_vars)
+    coeffs = {}  # Stores the final coefficient vectors (b_i)
+
+    # This loop proceeds backward from i = p-1 down to 0
+    for i in range(p - 1, -1, -1):
+        current_var = ordered_vars[i]
+
+        # Use the inferred dependent variable name to get the G_iy vector
+        G_iy = B[current_var][dep_var_name]
+
+        summation_vector = np.zeros_like(G_iy)
+
+        for j in range(i + 1, p):
+            successor_var = ordered_vars[j]
+            G_ij = B[current_var][successor_var]
+            b_j = coeffs[successor_var]
+            summation_vector += G_ij @ b_j
+
+        coeffs[current_var] = G_iy - summation_vector
+        coeffs[current_var].name = dep_var_name
+
+    # Reverse order of dict
+    coeffs = {k:coeffs[k] for k in reversed(list(coeffs.keys()))}
+
+    if as_dict:
+        return coeffs
+    else:
+        return dm.concat(coeffs,levelnames=True).squeeze()
+
+#+end_src
+
 
 *** Unit tests for =fwl_regression= and =reconstruct_coefficients_from_fwl=.
 
@@ -1825,27 +1813,26 @@ class TestFWLRegression(unittest.TestCase):
     def setUp(self):
         # Create sample data for testing
         np.random.seed(42)
-        n = 100
 
-        # Create independent variables
-        X1 = np.random.normal(0, 1, n)
-        X2 = np.random.normal(0, 1, n) + 0.5 * X1
-        X3 = np.random.normal(0, 1, n) + 0.3 * X1 + 0.2 * X2
+        N = 1000
 
-        # Create dependent variable
-        Y = 2 * X1 + 1.5 * X2 + 0.5 * X3 + np.random.normal(0, 1, n)
+        D = {}
+        D['Constant'] = dm.DataMat(np.ones(N))
+        D['a'] = dm.DataMat(np.random.randn(N,2))
+        D['b'] = D['a']*2 + np.random.randn(N,2)
+        D['y'] = dm.DataMat(D['a']@np.array((1,1)) + + D['b']@np.array((2,2)) + np.random.randn(N,)/1000,name='y')
 
-        # Convert to DataMat objects
-        self.D = {
-            'Y': dm.DataMat(Y),
-            'X1': dm.DataMat(X1),
-            'X2': dm.DataMat(X2),
-            'X3': dm.DataMat(X3)
-        }
+        # Reverse order of dict
+        D = dict([D.popitem() for i in range(len(D))])
+
+        self.D = D
 
         # Direct OLS for comparison
-        X = np.column_stack([np.ones(n), X1, X2, X3])
-        self.direct_coefs = np.linalg.lstsq(X, Y, rcond=None)[0][1:]  # Skip intercept
+        YX = dm.concat(D,levelnames=True,axis=1)
+        Y = YX.xs('y',level='v',axis=1,drop_level=False)
+        X = YX.iloc[:,1:]
+
+        self.direct_coefs = X.lstsq(Y)
 
     def test_fwl_regression(self):
         # Run FWL regression
@@ -1853,18 +1840,20 @@ class TestFWLRegression(unittest.TestCase):
 
         # Check if U & B contains entries for all variables
         self.assertEqual(set(B.keys()), set(U.keys()))
-        
+
         # Test that the last stage regression gives correct coefficients
         # The last variable (X3) should have the coefficient of Y on X3 after controlling for X1, X2
-        X3_coef = list(B['Y'].values())[0]  # Assuming only one value in last stage
-        self.assertAlmostEqual(X3_coef, self.direct_coefs[2], places=2)
+        # Reconstruct coefficients
+        reconstructed = reconstruct_coefficients_from_fwl(B,as_dict=False)
+
+        np.testing.assert_allclose(reconstructed-self.direct_coefs,0,atol=1e-2)
 
     def test_reconstruct_coefficients(self):
         # Run FWL regression
         U, B = fwl_regression(self.D.copy())
 
         # Reconstruct coefficients
-        reconstructed = reconstruct_coefficients_from_fwl('Y', B, U)
+        reconstructed = reconstruct_coefficients_from_fwl(B,as_dict=True)
 
         # Check if reconstructed coefficients match direct OLS
         for i, var in enumerate(['X3', 'X2', 'X1']):
@@ -1878,17 +1867,20 @@ class TestFWLRegression(unittest.TestCase):
         self.assertEqual(B, {})
 
         # Test reconstruction with empty results
-        reconstructed = reconstruct_coefficients_from_fwl('Y', {}, {})
+        reconstructed = reconstruct_coefficients_from_fwl({})
         self.assertEqual(reconstructed, {})
 
     def test_single_variable(self):
         # Test with a single variable
-        D_single = {'Y': self.D['Y']}
+        D_single = {'y': self.D['y']}
         U, B = fwl_regression(D_single)
         self.assertEqual(U, {})
         self.assertEqual(B, {})
 
 if __name__ == '__main__':
+    foo = TestFWLRegression()
+    foo.setUp()
+    #foo.test_fwl_regression()
     unittest.main()
 #+end_src
 
@@ -1914,94 +1906,6 @@ D = dict([D.popitem() for i in range(len(D))])
 U,B = fwl_regression(D)
 #+end_src
 
-
-* Order statistics
-** Quantiles, with "confidence intervals"
-See William Huber's https://stats.stackexchange.com/questions/122001/confidence-intervals-for-median
-#+begin_src python :tangle metrics_miscellany/order_statistics.py
-from scipy.stats.distributions import binom
-
-def quantile_confidence_intervals(x,q=1/2,minimum_coverage=0.95):
-    α = 1-minimum_coverage
-    x = x.sort_values()
-    n = x.shape[0]
-    p = binom(n,q)
-    u,cu = [(i,p.cdf(i)) for i in range(1,n) if p.cdf(i)>1-α/2 and p.cdf(i-1)<=1-α/2][0]
-    l,cl = [(i-1,p.cdf(i-1)) for i in range(1,n) if p.cdf(i)>α/2 and p.cdf(i-1)<=α/2][0]
-
-    coverage = 1 - cl - (1-cu)
-    return (x.iloc[l],x.iloc[u]),coverage
-#+end_src
-* Kernel Methods
-#+begin_src python :tangle metrics_miscellany/kernel_methods.py
-import pandas as pd
-from metrics_miscellany import datamat as dm
-import numpy as np
-
-sqrt3 = np.sqrt(3)  # Avoid repeated evaluation of this for speed...
-sqrt2pi = np.sqrt(2*np.pi)
-
-def rectangular(u):
-    return (np.abs(u) < sqrt3)/(2*sqrt3)  # Rectangular kernel
-
-def gaussian(u):
-    return np.exp(-(u**2)/2)/sqrt2pi # Gaussian kernel
-
-def gram(X,kernel=gaussian,bw=1):
-    """
-    Construct Gram matrix from vector of data X.
-    """
-    try:
-        idx = X.index
-        df = True
-        x = X.values
-    except AttributeError:
-        df = False
-        x = X
-
-    assert len(x.shape)==1
-    K = kernel((x.reshape((-1,1)) - x.reshape((1,-1)))/bw)
-
-    if df:
-        if isinstance(X,(dm.DataVec,dm.DataMat)):
-            K = dm.DataMat(K,index=X.index,columns=X.index)
-        elif isinstance(X,(pd.Series,pd.DataFrame)):
-            K = pd.DataFrame(K,index=X.index,columns=X.index)
-
-    return K
-
-
-
-def kernel_regression(X,y,bw,kernel=gaussian):
-    """
-    Use data (X,y) to estimate E(y|x), using bandwidth bw.
-    """
-    def mhat(x):
-        S = kernel((X-x)/bw) # "Smooths"
-
-        return S.dot(y)/S.sum()
-
-    return mhat
-
-def kernel_regression_variance(X,y,bw,kernel=gaussian):
-    """
-    Use data (X,y) to estimate E((y-m(x))^2|x), using bandwidth bw.
-    """
-    # Construct leave-one-out residuals
-    K = gram(X,bw=bw,kernel=kernel)
-    Km = K - K.dg().dg()
-
-    e2 = (y - (K@y)/K.sum(axis=1))**2
-    Ksum = K.sum().sum()
-
-    def sigmahat(x):
-
-        S = kernel((X-x)/bw) # "Smooths"
-
-        return (S**2).dot(e2)/Ksum
-
-    return sigmahat
-=======
 ** Linear GMM
 #+begin_src python :tangle metrics_miscellany/estimators.py
 def linear_gmm(X,y,Z,W=None,return_Omega=False):
@@ -2241,6 +2145,95 @@ def test_factor_regression(N=1000,k=10,l=2,r=1):
 if __name__ == '__main__':
     test_factor_regression(N=10000,r=1)
  #+end_src
+
+* Order statistics
+** Quantiles, with "confidence intervals"
+See William Huber's https://stats.stackexchange.com/questions/122001/confidence-intervals-for-median
+#+begin_src python :tangle metrics_miscellany/order_statistics.py
+from scipy.stats.distributions import binom
+
+def quantile_confidence_intervals(x,q=1/2,minimum_coverage=0.95):
+    α = 1-minimum_coverage
+    x = x.sort_values()
+    n = x.shape[0]
+    p = binom(n,q)
+    u,cu = [(i,p.cdf(i)) for i in range(1,n) if p.cdf(i)>1-α/2 and p.cdf(i-1)<=1-α/2][0]
+    l,cl = [(i-1,p.cdf(i-1)) for i in range(1,n) if p.cdf(i)>α/2 and p.cdf(i-1)<=α/2][0]
+
+    coverage = 1 - cl - (1-cu)
+    return (x.iloc[l],x.iloc[u]),coverage
+#+end_src
+* Kernel Methods
+#+begin_src python :tangle metrics_miscellany/kernel_methods.py
+import pandas as pd
+from metrics_miscellany import datamat as dm
+import numpy as np
+
+sqrt3 = np.sqrt(3)  # Avoid repeated evaluation of this for speed...
+sqrt2pi = np.sqrt(2*np.pi)
+
+def rectangular(u):
+    return (np.abs(u) < sqrt3)/(2*sqrt3)  # Rectangular kernel
+
+def gaussian(u):
+    return np.exp(-(u**2)/2)/sqrt2pi # Gaussian kernel
+
+def gram(X,kernel=gaussian,bw=1):
+    """
+    Construct Gram matrix from vector of data X.
+    """
+    try:
+        idx = X.index
+        df = True
+        x = X.values
+    except AttributeError:
+        df = False
+        x = X
+
+    assert len(x.shape)==1
+    K = kernel((x.reshape((-1,1)) - x.reshape((1,-1)))/bw)
+
+    if df:
+        if isinstance(X,(dm.DataVec,dm.DataMat)):
+            K = dm.DataMat(K,index=X.index,columns=X.index)
+        elif isinstance(X,(pd.Series,pd.DataFrame)):
+            K = pd.DataFrame(K,index=X.index,columns=X.index)
+
+    return K
+
+
+
+def kernel_regression(X,y,bw,kernel=gaussian):
+    """
+    Use data (X,y) to estimate E(y|x), using bandwidth bw.
+    """
+    def mhat(x):
+        S = kernel((X-x)/bw) # "Smooths"
+
+        return S.dot(y)/S.sum()
+
+    return mhat
+
+def kernel_regression_variance(X,y,bw,kernel=gaussian):
+    """
+    Use data (X,y) to estimate E((y-m(x))^2|x), using bandwidth bw.
+    """
+    # Construct leave-one-out residuals
+    K = gram(X,bw=bw,kernel=kernel)
+    Km = K - K.dg().dg()
+
+    e2 = (y - (K@y)/K.sum(axis=1))**2
+    Ksum = K.sum().sum()
+
+    def sigmahat(x):
+
+        S = kernel((X-x)/bw) # "Smooths"
+
+        return (S**2).dot(e2)/Ksum
+
+    return sigmahat
+#+end_src
+
 
 * GMM
 ** Procedural interface for GMM estimator.
@@ -3058,6 +3051,68 @@ ax.plot(xrange,[iid.chi2.pdf(x,df) for x in xrange])
 
 assert stats.kstest(P,stats.distributions.uniform.cdf).pvalue>0.01
 #+end_src
+** Cragg-Donald Reduced Rank Test
+#+begin_src python :tangle metrics_miscellany/tests.py
+def cragg_donald(X,Q):
+    """
+    Cragg-Donald (1997) test for weak instruments.
+
+    In multivariate regression
+
+    X = Q\Pi + v
+
+    We test null hypothesis that the rank of \Pi is less than the rank of X.
+
+    Returns a statistic distributed chi2, along with relevant p-value
+    """
+    teststat = (X.T@X.resid(Q)).inv@(X.T@X.proj(Q))
+
+    teststat = teststat.eig()[0].min()
+
+    n,k = Q.shape
+
+    teststat = (n-k)*teststat
+
+    pvalue = 1 - chi2(n-X.shape[1]+1).cdf(teststat)
+
+    return teststat,pvalue
+
+#+end_src
+*** Test of Cragg-Donald
+#+begin_src python :tangle metrics_miscellany/test/test_cragg_donald.py
+"""Check size of cragg_donald reduced rank test.
+"""
+import metrics_miscellany.datamat as dm
+from metrics_miscellany.tests import cragg_donald
+from scipy.stats.distributions import norm, chi2
+import numpy as np
+
+def test_size(n=1000,m=8,l=10,tol=1e-4):
+    Pi = norm.rvs(size=(l,m))
+    Z = dm.DataMat(norm.rvs(size=(n,l)))
+
+    its = 0
+    laststat = -1
+    stat = 0
+    Stats = []
+    Ps = []
+    while its<=30 or np.abs(stat-laststat)>tol:
+        its += 1
+        laststat = stat
+        U = dm.DataMat(norm.rvs(size=(n,m)))
+        X = Z@Pi + U
+        s,p = cragg_donald(X,Z)
+        Stats.append(s)
+        Ps.append(p)
+        stat = p/its + stat*(its-1)/its
+        if its % 12 == 1:
+            print(f"Iteration {its}, alpha={stat:4.4f}")
+
+
+
+#+end_src
+
+
 * Utils
 ** Some QR Tricks
 *** QR Decomposition
@@ -3190,5 +3245,4 @@ p = random.permutation(df,permute_levels=['i'])
 
 assert np.all(p.unstack('t').std(axis=1)==0)
 
->>>>>>> parent of 9e116cc (Doctests for pinv.)
 #+end_src
