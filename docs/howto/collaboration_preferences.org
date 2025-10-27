@@ -1,0 +1,37 @@
+#+TITLE: Collaboration Preferences (ligon)
+#+AUTHOR: Metrics Miscellany Maintainers
+#+OPTIONS: toc:nil num:nil
+
+These notes capture Ethan (“ligon”)’s working style inside *Metrics_Miscellany* so that
+human and automated collaborators can stay aligned.  Update this document as preferences
+evolve.
+
+* Tooling Defaults
+- Use **Poetry-managed commands**; avoid =pip install= in the global interpreter.
+- Default to =make quick-check= during development.  Pass =FILES=path/to/file.py if you
+  need a narrower run.
+- Re-run the relevant Make target after each fix and narrate the
+  *check → diagnose → repair → re-check* cycle in status notes.
+- Prefer Org-mode edits over direct Python changes; keep the tangled Python output synced.
+
+* Git Workflow
+- Create dedicated branches for feature work and *commit early and often*.
+- Keep commits scoped (docs vs. code vs. tooling) and reference verification commands in the
+  commit message body when helpful.
+- Push once the branch passes =make quick-check= (and =make slow-tests= if slow cases change).
+
+* Documentation Style
+- Stick to American spelling (vectorize, linearize) in prose.
+- Use \[ ... \] or \begin{equation} ... \end{equation} delimiters for display math; avoid
+  bare Unicode symbols.
+- Summarize estimator behaviour and index conventions when touching =metrics_miscellany.org=.
+
+* Communication
+- Surface blockers immediately (missing dependency, sandbox limit, failing tangle) along with
+  a proposed remediation.
+- Leave breadcrumbs in =docs/automation/status_log.org= (or a dated sibling) when a session
+  introduces decisions worth remembering.
+- The prompt *“remember the maxim”* is a cue to revisit this file and confirm the current
+  workflow is being followed.
+
+Feel free to add dated appendices (e.g., “<2025-10-27 Mon> Added preference for Poetry quick-check”).

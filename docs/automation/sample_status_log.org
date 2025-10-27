@@ -1,0 +1,21 @@
+#+TITLE: Sample Agent Status Log
+#+AUTHOR: Metrics Miscellany Automation
+#+OPTIONS: toc:nil num:nil
+
+* Session Summary
+- Date: <2025-10-27 Mon>
+- Task: Example run documenting lint/test commands.
+- Agent: ExampleAssistant v1
+
+* Status Notes
+1. Confirmed repository standards via =docs/index.org= and =AGENTS.org=.
+2. Ran =make quick-check= (ruff, black --check, mypy, pytest -m "not slow").
+3. Recorded timing for =poetry run pytest= to help future automation estimate runtime.
+
+* Verification Commands
+- =make quick-check=
+- =poetry run pytest -m slow  # only if required=
+
+* Outstanding Questions
+- Should automation logs live in a single rolling file (=status_log.org=) or one per session?
+- Do we want to capture wheel build results in these logs?

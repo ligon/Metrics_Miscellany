@@ -1,0 +1,60 @@
+#+TITLE: Contributing Guidelines
+#+OPTIONS: toc:nil num:nil
+
+* Welcome
+Thanks for helping improve *Metrics_Miscellany*!  This guide summarizes the expectations
+for contributors so that code, documentation, and tests stay coherent across the project.
+It complements [[file:README.org][README.org]], [[file:docs/index.org][docs/index.org]], and [[file:AGENTS.org][AGENTS.org]].
+
+* 1. Standards & Source of Truth
+- Primary development happens in =metrics_miscellany.org=, which tangles into the Python
+  modules under =metrics_miscellany/=.  Edit the Org file first and re-run
+  =./tangle.sh metrics_miscellany.org= when you are ready to regenerate code.
+- The package depends on the external =datamat= project; do not reintroduce a vendored
+  copy inside this repository.
+
+* 2. Environment & Tooling
+- Python version: **3.11** (managed through Poetry).
+- Install dependencies with:
+  #+begin_src bash
+  poetry install --with dev
+  #+end_src
+- Use the provided Make targets rather than piecemeal commands:
+  - =make quick-check= — run lint (ruff), formatting (black --check), mypy, and pytest
+    (skipping =@pytest.mark.slow= tests by default).
+  - =make slow-tests= — run only the tests marked =slow=.
+  - =make check= — run the full suite (lint + type + complete pytest).
+
+* 3. Code Style & Documentation
+- Follow PEP 8 and NumPy docstring style; prefer explicit imports from =metrics_miscellany.*=.
+- Include shape information and estimator assumptions in docstrings and surrounding Org text.
+- Keep math notation ASCII-safe (\alpha, \Sigma, etc.) inside Org blocks.
+- Update or add entries in [[file:docs/index.org][docs/index.org]] when introducing major features or guides.
+
+* 4. Testing & Verification
+- Write or update tests under =metrics_miscellany/test/= for new functionality.
+- Mark especially heavy tests with =@pytest.mark.slow= so they can be gated behind
+  =make slow-tests=.
+- Before submitting changes, run at least:
+  #+begin_src bash
+  make quick-check
+  #+end_src
+  and record the command in your handoff/PR description.  If you touch tangles, also
+  run the relevant doctests (many Org snippets include inline tests).
+
+* 5. Branching & Commits
+- Create feature branches (e.g., =feature/new-estimator=) for substantive work.
+- Commit early and often with focused messages; avoid mixing unrelated changes.
+- When working with automation agents, add =Co-authored-by= trailers as appropriate.
+
+* 6. Pull Request Checklist
+1. Ensure =metrics_miscellany.org= and the generated Python modules are consistent
+   (re-run tangling after edits).
+2. Update documentation or examples that benefit from the change.
+3. Attach benchmark or regression evidence when altering numerical algorithms.
+4. Mention any skipped quality checks and explain why.
+
+* 7. License
+Contributions are released under the project’s license (CC BY-NC-SA 4.0; see
+[[file:LICENSE.txt][LICENSE.txt]]).  By contributing, you confirm that the work can be distributed under
+that license.

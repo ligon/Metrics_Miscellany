@@ -1,0 +1,44 @@
+#+TITLE: Release Preparation Checklist
+#+AUTHOR: Metrics Miscellany Maintainers
+#+OPTIONS: toc:nil num:nil
+
+Use this checklist when preparing a tagged release of *Metrics_Miscellany*.
+
+* Dependency Review
+- Ensure [[https://github.com/ligon/DataMat][DataMat]] has a released version that satisfies =pyproject.toml=; update the
+  path or version specifier accordingly.
+- Bump other pinned minimums (e.g., =statsmodels=, =pandas=) if the release relies on
+  newer functionality.
+
+* Documentation Refresh
+- Update [[file:../../README.org][README.org]] with new highlights or API changes.
+- Record notable changes in =CHANGES.txt= (or draft notes in =docs/automation/= if
+  preparing a longer announcement).
+- Verify that =docs/index.org= lists any new guides.
+
+* Quality Gates
+#+begin_src bash
+make quick-check
+make slow-tests   # only if slow tests exist / were modified
+#+end_src
+- If tangles changed, re-run =./tangle.sh metrics_miscellany.org= and confirm =git status=
+  is clean afterwards.
+
+* Build Artifacts
+#+begin_src bash
+poetry build
+#+end_src
+- Optionally install the wheel in a fresh virtualenv to smoke-test importability.
+
+* Version & Tag
+- Update the =version= field in =pyproject.toml= and any version references in the Org
+  sources or README.
+- Commit with a message like “Bump version to vX.Y.Z” and tag the release:
+  #+begin_src bash
+  git tag vX.Y.Z
+  git push --follow-tags
+  #+end_src
+
+* Publish & Announce
+- Upload artifacts via =poetry publish= or manual =twine= upload if required.
+- Announce the release in the usual channels and note any follow-up tasks or known issues.
