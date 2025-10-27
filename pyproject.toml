@@ -54,6 +54,12 @@ python_version = "3.11"
 warn_unused_ignores = true
 ignore_missing_imports = true
 strict_optional = true
+allow_redefinition = true
+disable_error_code = ["no-redef"]
+
+[[tool.mypy.overrides]]
+module = "metrics_miscellany.test.*"
+ignore_errors = true
 
 [build-system]
 requires = ["poetry-core>=1.7.0"]

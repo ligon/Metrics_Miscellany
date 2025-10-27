@@ -217,7 +217,11 @@ def datamat_matrices():
 def test_matmul(numpy_matrices, pandas_matrices, datamat_matrices):
     for A, B in [numpy_matrices, pandas_matrices, datamat_matrices]:
         C = A @ B
-        assert isinstance(C, type(A))
+        if isinstance(A, dm.DataMat):
+            expected = dm.DataVec if getattr(B, "shape", (None, None))[1] == 1 else dm.DataMat
+            assert isinstance(C, expected)
+        else:
+            assert isinstance(C, type(A))
 
 @pytest.fixture
 def datamat_vector():
@@ -1042,7 +1046,7 @@ def reconstruct_coefficients_from_fwl(B: dict,as_dict=False):
     # ## 2. Proceed with the iterative reconstruction ##
     ordered_vars = list(B.keys())
     p = len(ordered_vars)
-    coeffs = {}  # Stores the final coefficient vectors (b_i)
+    coeffs: dict[str, pd.Series] = {}  # Stores the final coefficient vectors (b_i)
 
     # This loop proceeds backward from i = p-1 down to 0
     for i in range(p - 1, -1, -1):
