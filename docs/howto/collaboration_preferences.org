@@ -8,7 +8,7 @@ evolve.
 
 * Tooling Defaults
 - Use **Poetry-managed commands**; avoid =pip install= in the global interpreter.
-- Default to =make quick-check= during development.  Pass =FILES=path/to/file.py if you
+- Default to =make quick-check= during development.  Pass =FILES=path/to/file.py= if you
   need a narrower run.
 - Re-run the relevant Make target after each fix and narrate the
   *check → diagnose → repair → re-check* cycle in status notes.
