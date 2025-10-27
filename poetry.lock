@@ -202,19 +202,17 @@ name = "datamat"
 version = "0.2.0a1"
 description = "Matrix Operations on Data Arrays"
 optional = false
-python-versions = ">=3.11,<4.0"
+python-versions = "<4.0,>=3.11"
 groups = ["main"]
-files = []
-develop = true
+files = [
+    {file = "datamat-0.2.0a1-py3-none-any.whl", hash = "sha256:706744d6101742b485135073163fb0cd6c886b7c5ac4608141fd49e80f436837"},
+    {file = "datamat-0.2.0a1.tar.gz", hash = "sha256:9f85fc9b23946aad365f07d95dd381f287429d89523dd104b72623d580d1cf4d"},
+]
 
 [package.dependencies]
 numpy = ">=1.22"
 pandas = ">=1.4"
 scipy = ">=1.9"
-
-[package.source]
-type = "directory"
-url = "../../Projects/DataMat"
 
 [[package]]
 name = "decorator"
@@ -1338,4 +1336,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<4.0"
-content-hash = "54f42924b9cd13312a1ea8e049a377651a7e31873fc07eababf568b37546370d"
+content-hash = "1bea53d12d78fdee33e5dac9f61b8a82e2f9e8dd9aca4807b52ddb1c97788ea7"

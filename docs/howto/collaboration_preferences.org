@@ -12,6 +12,9 @@ evolve.
   need a narrower run.
 - Re-run the relevant Make target after each fix and narrate the
   *check → diagnose → repair → re-check* cycle in status notes.
+- When iterating alongside the =DataMat= repo, use =make use-local-datamat= to install the
+  sibling checkout into the Poetry virtualenv, and run =poetry install --sync= to return to
+  the PyPI release afterwards.
 - Prefer Org-mode edits over direct Python changes; keep the tangled Python output synced.
 
 * Git Workflow
