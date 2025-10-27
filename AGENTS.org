@@ -10,7 +10,7 @@ execute repeatably.
 
 * Scope
 - Follow the coding and documentation conventions in [[file:docs/index.org][docs/index.org]] and
-  [[file:../metrics_miscellany.org][metrics_miscellany.org]].
+  [[file:metrics_miscellany.org][metrics_miscellany.org]].
 - Human contributors still review all substantive changes; this document only clarifies
   how agents prepare that work.
 - Use =docs/automation/= for run logs or follow-up notes that should persist beyond a
@@ -33,7 +33,7 @@ execute repeatably.
 * Pre-Execution Checklist
 1. Sync the working tree with the target branch (typically =master= or a dedicated feature
    branch) without rewriting history.
-2. Review [[file:../CONTRIBUTING.org][CONTRIBUTING.org]] and this guide to confirm tooling expectations.
+2. Review [[file:CONTRIBUTING.org][CONTRIBUTING.org]] and this guide to confirm tooling expectations.
 3. Inspect task-specific instructions in =README.org= or issue notes.
 4. Confirm sandbox limits (filesystem scope, network policy).  Request maintainer approval
    before running commands that need elevated permissions or network access.
