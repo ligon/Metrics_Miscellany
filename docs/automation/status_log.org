@@ -1,0 +1,12 @@
+#+TITLE: Agent Status Log
+#+AUTHOR: Metrics Miscellany Automation
+#+OPTIONS: toc:nil num:nil
+
+* Session Summary
+- Date: <2025-10-27 Mon>
+- Agent: (placeholder)
+- Focus: Record notable automation sessions here.  Copy the template from
+  [[file:sample_status_log.org][sample_status_log.org]] when adding real entries.
+
+* Notes
+- No sessions logged yet.

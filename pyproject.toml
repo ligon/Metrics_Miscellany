@@ -19,9 +19,47 @@ ipython = "^8.26"
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2"
 matplotlib = "^3.8"
+ruff = "^0.5"
+black = "^24.4"
+mypy = "^1.10"
 
 [tool.poetry.scripts]
 metrics-miscellany-version = "metrics_miscellany.gmm:print_version"
+
+[tool.pytest.ini_options]
+testpaths = ["metrics_miscellany/test"]
+markers = [
+  "slow: tests that are comparatively expensive"
+]
+
+[tool.black]
+target-version = ["py311"]
+line-length = 88
+extend-exclude = "dist|build|Metrics_Miscellany\\.egg-info"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+extend-exclude = ["build", "dist", "Metrics_Miscellany.egg-info"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-third-party = ["datamat", "numpy", "pandas", "scipy", "statsmodels"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_ignores = true
+ignore_missing_imports = true
+strict_optional = true
+allow_redefinition = true
+disable_error_code = ["no-redef"]
+
+[[tool.mypy.overrides]]
+module = "metrics_miscellany.test.*"
+ignore_errors = true
 
 [build-system]
 requires = ["poetry-core>=1.7.0"]

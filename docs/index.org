@@ -1,0 +1,44 @@
+#+TITLE: MetricsMiscellany Documentation
+#+AUTHOR: Metrics Miscellany Maintainers
+#+OPTIONS: toc:nil num:nil
+
+* Overview
+This directory collects contributor-facing material for the *Metrics_Miscellany* project —
+a library of econometric estimators, hypothesis tests, and utility routines backed by
+=DataMat=/=DataVec= structures.  The documents are written in **Emacs Org-mode** to stay
+in sync with the rest of the project (notably =metrics_miscellany.org=, which tangles to
+Python modules).
+
+* Directory Structure
+#+begin_example
+docs/
+  index.org               ← This file
+  howto/                  ← Playbooks and release checklists
+  automation/             ← Templates and logs for automation agents
+#+end_example
+
+* Key Documents
+| Section               | File                                        | Description                                           |
+|-----------------------+---------------------------------------------+-------------------------------------------------------|
+| Project README        | [[file:../README.org][../README.org]]                                 | Installation, usage, and framing                      |
+| Contributor Guide     | [[file:../CONTRIBUTING.org][../CONTRIBUTING.org]]                       | Workflow, coding conventions, and QA                  |
+| Agent Playbook        | [[file:../AGENTS.org][../AGENTS.org]]                                 | Operational checklist for automated contributors      |
+| Maintainer Preferences| [[file:howto/collaboration_preferences.org][howto/collaboration_preferences.org]]      | Quick reference for Ethan’s working style             |
+| Release Checklist     | [[file:howto/release_checklist.org][howto/release_checklist.org]]               | Step-by-step release preparation                      |
+| Automation Log Sample | [[file:automation/sample_status_log.org][automation/sample_status_log.org]]            | Template + example for agent status notes             |
+
+* Adding Documentation
+1. Author new Org files under =docs/howto/= or =docs/automation/= as appropriate.
+2. Add a short entry to the table above (or create a new section when needed).
+3. Use relative links and ASCII-safe LaTeX delimiters (\[ ... \]) so exports stay portable.
+4. Include author, date, and version headers when documenting processes.
+
+* Exporting
+These Org files can be exported to Markdown for packaging or external docs with:
+#+begin_src bash
+emacs --batch -l org --eval '(org-md-export-to-markdown)'
+#+end_src
+
+* License
+Documentation in =docs/= is covered by the same CC BY-NC-SA 4.0 license as the code base
+(see [[file:../LICENSE.txt][../LICENSE.txt]]).

@@ -1,5 +1,7 @@
 *.pyc
 auto*
+!/docs/automation/
+!/docs/automation/*
 *.pyg
 build/
 dist/
