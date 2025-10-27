@@ -13,27 +13,23 @@ tangle: .tangle
 test: .test 
 
 .test: $(ORG_INPUTS)
-	pytest metrics_miscellany/test/
+	poetry run pytest metrics_miscellany/test/
 	touch .test
 
-wheel: setup.py tangle test CHANGES.txt metrics_miscellany/requirements.txt
-	pip wheel --wheel-dir=dist/ .
+wheel: pyproject.toml tangle test CHANGES.txt
+	poetry build
 
 CHANGES.txt:
 	git log --pretty='medium' > CHANGES.txt
 
-metrics_miscellany/requirements.txt:
-	(cd metrics_miscellany; pigar)
-
-devinstall: tangle test 
-	pip install -e .
+devinstall: tangle
+	poetry install
 
 upload: wheel
 	twine upload dist/*
 
 clean: 
 	-rm -f dist/*.tar.gz dist/*.exe dist/*.whl
-	-rm -f metrics_miscellany/requirements.txt
 	-rm -f CHANGES.txt
 	-rm -f .test
 	-rm -f .tangle

@@ -1,0 +1,28 @@
+[tool.poetry]
+name = "metrics-miscellany"
+version = "0.2.5"
+description = "Miscellaneous code for estimation involving pandas dataframes."
+readme = "README.org"
+license = "CC-BY-NC-SA-4.0"
+authors = ["Ethan Ligon <ligon@berkeley.edu>"]
+packages = [{ include = "metrics_miscellany" }]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<4.0"
+numpy = "^1.25"
+pandas = "^1.5"
+scipy = "^1.9"
+statsmodels = "^0.14"
+datamat = { path = "../../Projects/DataMat", develop = true }
+ipython = "^8.26"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.2"
+matplotlib = "^3.8"
+
+[tool.poetry.scripts]
+metrics-miscellany-version = "metrics_miscellany.gmm:print_version"
+
+[build-system]
+requires = ["poetry-core>=1.7.0"]
+build-backend = "poetry.core.masonry.api"

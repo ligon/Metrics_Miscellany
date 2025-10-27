@@ -10,3 +10,4 @@ metrics_miscellany/*
 /.tangle
 /.test
 /Metrics_Miscellany.egg-info/
+/.venv/
