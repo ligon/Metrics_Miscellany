@@ -7,6 +7,8 @@ Use this checklist when preparing a tagged release of *Metrics_Miscellany*.
 * Dependency Review
 - Ensure [[https://github.com/ligon/DataMat][DataMat]] has a released version that satisfies =pyproject.toml=; update the
   path or version specifier accordingly.
+- If a local editable install was used during development (=make use-local-datamat=),
+  run =poetry install --sync= to return the virtualenv to the published PyPI build.
 - Bump other pinned minimums (e.g., =statsmodels=, =pandas=) if the release relies on
   newer functionality.
 

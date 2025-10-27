@@ -43,6 +43,8 @@ execute repeatably.
 - Prefer Make targets over ad-hoc invocations:
   - =make quick-check= for the default lint/type/test sweep.
   - =make slow-tests= for marked slow cases.
+  - =make use-local-datamat= to override the virtualenv with the sibling =DataMat= checkout
+    during tandem development; run =poetry install --sync= when finished.
 - Stick to fast search utilities (=rg=, =python - <<'PY'= scripts) for inspection; avoid
   destructive commands like =rm -rf= or =git reset --hard=.
 - When exporting Org blocks, reuse =tangle.sh= or documented batch =emacs= commands.

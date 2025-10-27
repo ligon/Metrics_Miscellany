@@ -23,7 +23,7 @@ else
 PYTEST_CMD = $(POETRY) run pytest $(PYTEST_FLAGS)
 endif
 
-.PHONY: tangle lint black mypy test quick-check slow-tests check build devinstall clean all
+.PHONY: tangle lint black mypy test quick-check slow-tests check build devinstall use-local-datamat clean all
 
 all: tangle quick-check build
 
@@ -62,6 +62,9 @@ build: pyproject.toml tangle
 
 devinstall:
 	$(POETRY) install --with dev
+
+use-local-datamat:
+	$(POETRY) run pip install -e ../../Projects/DataMat
 
 clean:
 	-rm -f dist/*.tar.gz dist/*.exe dist/*.whl
