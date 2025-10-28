@@ -1,7 +1,8 @@
 Code implementing various statistical and econometric tools, developed haphazardly.  Hence the "miscellany".
 
 Key ideas that motivate this collection:
-   1. Input and output dataframes or series.
+   1. Input and output dataframes or series, or (better!) DataMats and DataVecs from the [[https://github.com/ligon/DataMat][datamat]] project.
    2. Provide clear, clean, integrated tests of estimators.
+   3. Adopt semantics similar to the mathematical description of the estimation or inference problem.
 
 See [[file:docs/index.org][docs/index.org]] for contributor guides, release checklists, and automation notes.
