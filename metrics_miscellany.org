@@ -554,8 +554,6 @@ if __name__=='__main__':
 * Estimators
 ** Preliminaries
 #+begin_src python :tangle metrics_miscellany/estimators.py
-import statsmodels.api as sm
-from statsmodels.stats import correlation_tools
 import numpy as np
 from numpy.linalg import lstsq
 import warnings
@@ -584,22 +582,34 @@ def ols(X,y,cov_type='HC3',PSD_COV=False):
     """
     n,k = X.shape
 
-    est = sm.OLS(y,X).fit()
-    b = pd.DataFrame({'Coefficients':est.params.values},index=X.columns)
-    if cov_type=='HC3':
-        V = est.cov_HC3
-    elif cov_type=='OLS':
-        XX = X.T@X
-        if np.linalg.eigh(XX)[0].min()<0:
-            XX = correlation_tools.cov_nearest(XX,method='nearest')
+    Xv = np.asarray(X)
+    yv = np.asarray(y).ravel()
+
+    b_vals,_,_,_ = np.linalg.lstsq(Xv, yv, rcond=None)
+    b = pd.DataFrame({'Coefficients': b_vals}, index=X.columns)
+    e = yv - Xv @ b_vals
+
+    XX = Xv.T @ Xv
+    XXinv = np.linalg.inv(XX)
+
+    if cov_type == 'OLS':
+        if np.linalg.eigh(XX)[0].min() < 0:
+            s_xx, U_xx = np.linalg.eigh((XX + XX.T) / 2)
+            XX = U_xx @ np.diag(np.maximum(s_xx, 1e-12)) @ U_xx.T
+            XXinv = np.linalg.inv(XX)
             warnings.warn("X'X not positive (semi-) definite.  Correcting!  Estimated variances should not be affected.")
-        V = est.resid.var()*np.linalg.inv(XX)
-    elif cov_type=='HC2':
-        V = est.cov_HC2
-    elif cov_type=='HC1':
-        V = est.cov_HC1
-    elif cov_type=='HC0':
-        V = est.cov_HC0
+        V = np.var(e, ddof=0) * XXinv
+    elif cov_type in ('HC0', 'HC1', 'HC2', 'HC3'):
+        h = np.einsum('ij,jk,ik->i', Xv, XXinv, Xv)  # hat matrix diagonal
+        if cov_type == 'HC0':
+            w = e ** 2
+        elif cov_type == 'HC1':
+            w = e ** 2 * (n / (n - k))
+        elif cov_type == 'HC2':
+            w = e ** 2 / (1 - h)
+        elif cov_type == 'HC3':
+            w = e ** 2 / (1 - h) ** 2
+        V = XXinv @ (Xv.T * w) @ Xv @ XXinv
     else:
         raise ValueError("Unknown type of covariance matrix.")
 
@@ -2456,7 +2466,6 @@ def hat_factory(X):
 
 **  "Fixing" matrices that aren't quite positive definite
 #+begin_src python :tangle metrics_miscellany/utils.py
-from statsmodels.stats.correlation_tools import cov_nearest as _cov_nearest
 import pandas as pd
 
 def cov_nearest(V,threshold=1e-12):
