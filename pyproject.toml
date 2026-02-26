@@ -1,11 +1,12 @@
 [tool.poetry]
 name = "metrics-miscellany"
-version = "0.3.2"
+version = "0.3.3"
 description = "Miscellaneous code for estimation involving pandas dataframes."
 readme = "README.org"
 license = "CC-BY-NC-SA-4.0"
 authors = ["Ethan Ligon <ligon@berkeley.edu>"]
 packages = [{ include = "metrics_miscellany" }]
+include = [{ path = "metrics_miscellany/**/*.py", format = ["sdist", "wheel"] }]
 
 [tool.poetry.dependencies]
 python = ">=3.11,<4.0"
