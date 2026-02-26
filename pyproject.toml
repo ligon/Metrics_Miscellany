@@ -10,9 +10,8 @@ packages = [{ include = "metrics_miscellany" }]
 [tool.poetry.dependencies]
 python = ">=3.11,<4.0"
 numpy = "^1.25"
-pandas = "^1.5"
+pandas = ">=1.5"
 scipy = "^1.9"
-statsmodels = "^0.14"
 datamat = { version = ">=0.2.0a1", allow-prereleases = true }
 ipython = "^8.26"
 
@@ -22,6 +21,7 @@ matplotlib = "^3.8"
 ruff = "^0.5"
 black = "^24.4"
 mypy = "^1.10"
+statsmodels = "^0.14"
 
 [tool.poetry.scripts]
 metrics-miscellany-version = "metrics_miscellany.gmm:print_version"
@@ -47,7 +47,7 @@ select = ["E", "F", "I", "B", "UP"]
 ignore = ["E501"]
 
 [tool.ruff.lint.isort]
-known-third-party = ["datamat", "numpy", "pandas", "scipy", "statsmodels"]
+known-third-party = ["datamat", "numpy", "pandas", "scipy"]
 
 [tool.mypy]
 python_version = "3.11"
