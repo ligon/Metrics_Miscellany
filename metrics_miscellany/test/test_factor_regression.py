@@ -58,7 +58,7 @@ def test_factor_regression(N=1000,k=10,l=2,r=1):
 
     assert np.all((Y-X@B).var()>(Y-X@B-F@L).var())
 
-    assert np.linalg.norm((B0-B).dropna())/np.linalg.norm(B0) < 0.02
+    assert np.linalg.norm((B0-B).dropna())/np.linalg.norm(B0) < 0.01
 
 if __name__ == '__main__':
     test_factor_regression(N=10000,r=1)
