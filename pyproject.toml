@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "metrics-miscellany"
-version = "0.2.5"
+version = "0.3.4"
 description = "Miscellaneous code for estimation involving pandas dataframes."
 readme = "README.org"
 license = "CC-BY-NC-SA-4.0"
@@ -10,9 +10,8 @@ packages = [{ include = "metrics_miscellany" }]
 [tool.poetry.dependencies]
 python = ">=3.11,<4.0"
 numpy = ">=1.25"
-pandas = "^1.5"
-scipy = "^1.9"
-statsmodels = "^0.14"
+pandas = ">=1.5"
+scipy = ">=1.9"
 datamat = { version = ">=0.2.0a1", allow-prereleases = true }
 ipython = "^8.26"
 
@@ -22,6 +21,7 @@ matplotlib = "^3.8"
 ruff = "^0.5"
 black = "^24.4"
 mypy = "^1.10"
+statsmodels = "^0.14"
 
 [tool.poetry.scripts]
 metrics-miscellany-version = "metrics_miscellany.gmm:print_version"
