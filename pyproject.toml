@@ -13,8 +13,8 @@ python = ">=3.11,<4.0"
 numpy = ">=1.25"
 pandas = ">=1.5"
 scipy = ">=1.9"
-datamat = { version = ">=0.2.0a1", allow-prereleases = true }
-ipython = "^8.26"
+datamat = ">=0.2.1"
+ipython = ">=8.26"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2"

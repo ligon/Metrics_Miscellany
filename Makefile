@@ -23,7 +23,7 @@ else
 PYTEST_CMD = $(POETRY) run pytest $(PYTEST_FLAGS)
 endif
 
-.PHONY: tangle lint black mypy test quick-check slow-tests check build devinstall use-local-datamat clean all
+.PHONY: tangle lint black mypy test quick-check slow-tests check build publish devinstall use-local-datamat clean all
 
 all: tangle quick-check build
 
@@ -59,6 +59,9 @@ check: tangle lint black mypy
 
 build: pyproject.toml tangle
 	$(POETRY) build
+
+publish: build
+	$(POETRY) publish
 
 devinstall:
 	$(POETRY) install --with dev
