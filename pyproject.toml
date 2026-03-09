@@ -9,7 +9,7 @@ packages = [{ include = "metrics_miscellany" }]
 
 [tool.poetry.dependencies]
 python = ">=3.11,<4.0"
-numpy = "^1.25"
+numpy = ">=1.25"
 pandas = "^1.5"
 scipy = "^1.9"
 statsmodels = "^0.14"
