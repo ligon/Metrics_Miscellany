@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "metrics-miscellany"
-version = "0.3.3"
+version = "0.3.4"
 description = "Miscellaneous code for estimation involving pandas dataframes."
 readme = "README.org"
 license = "CC-BY-NC-SA-4.0"
@@ -10,9 +10,9 @@ include = [{ path = "metrics_miscellany/**/*.py", format = ["sdist", "wheel"] }]
 
 [tool.poetry.dependencies]
 python = ">=3.11,<4.0"
-numpy = "^1.25"
+numpy = ">=1.25"
 pandas = ">=1.5"
-scipy = "^1.9"
+scipy = ">=1.9"
 datamat = { version = ">=0.2.0a1", allow-prereleases = true }
 ipython = "^8.26"
 
