@@ -23,7 +23,7 @@ else
 PYTEST_CMD = $(POETRY) run pytest $(PYTEST_FLAGS)
 endif
 
-.PHONY: tangle lint black mypy test quick-check slow-tests check build publish devinstall use-local-datamat clean all
+.PHONY: tangle lint black mypy test quick-check slow-tests check build publish devinstall use-local-datamat clean all release
 
 all: tangle quick-check build
 
@@ -62,6 +62,15 @@ build: pyproject.toml tangle
 
 publish: build
 	$(POETRY) publish
+
+# Usage: make release BUMP=patch  (or minor, major, prepatch, etc.)
+BUMP ?= patch
+release: build
+	$(eval NEW_VER := $(shell $(POETRY) version $(BUMP) -s))
+	git add pyproject.toml
+	git commit -m "Bump version to $(NEW_VER)"
+	git tag v$(NEW_VER)
+	@echo "Tagged v$(NEW_VER). Run 'git push && git push --tags && make publish' to publish."
 
 devinstall:
 	$(POETRY) install --with dev
