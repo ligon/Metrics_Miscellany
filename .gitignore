@@ -1,4 +1,5 @@
 *.pyc
+__pycache__/
 auto*
 !/docs/automation/
 !/docs/automation/*
