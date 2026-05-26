@@ -47,6 +47,10 @@ def main(N,k,l,r):
     return Y,X,F,B,L,U
 
 def test_factor_regression(N=1000,k=10,l=2,r=1):
+    # Seed the global RNG so this test is independent of upstream test
+    # ordering: =main()= and =generate_multivariate_normal()= use
+    # np.random.* and scipy.stats.rvs() without an explicit seed.
+    np.random.seed(20240101)
     Y,X,F0,B0,L0,U0 = main(N,k,l,r)
     X['Constant'] = 1
 
