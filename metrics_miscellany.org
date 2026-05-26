@@ -2118,35 +2118,44 @@ from scipy import stats
 import pandas as pd
 import numpy as np
 
-def chi2_test(b,V,var_selection=None,R=None,TEST=False):
+def chi2_test(b, V, var_selection=None, R=None, TEST=False):
     """Construct chi2 test of R'b = 0.
 
     If R is None then test is b = 0.
 
-    If one wishes to test a hypothesis regarding only a subset of elements of b,
-    this subset can be chosen by specifying var_selection as either a query string
-    or as a list.
+    If one wishes to test a hypothesis regarding only a subset of elements
+    of b, this subset can be chosen by specifying =var_selection= as either
+    a query string or as a list of variable names.
+
+    When =var_selection= and =R= are both supplied, =R= is auto-restricted
+    via =R.loc[myb.index]= so that the algebra =R' myb= and =R' myV R= is
+    well-defined.  Previously the code applied =R.T @ b= (the *full*
+    coefficient vector) against an already-restricted =myV=, raising
+    =ValueError: matrices are not aligned= before any test could run.
     """
 
     if var_selection is not None:
-        if type(var_selection) is str:
+        if isinstance(var_selection, str):
             myb = b.query(var_selection)
-        elif type(var_selection) is list:
-            myb = b.loc[var_selection]
+        elif isinstance(var_selection, (list, tuple)):
+            myb = b.loc[list(var_selection)]
         else:
-            raise(ValueError,"var_selection should be a query string of list of variable names")
+            raise ValueError(
+                "var_selection should be a query string or a list/tuple "
+                "of variable names.")
     else:
         myb = b
 
-
     # Drop parts of matrix not involved in test
-    myV = V.reindex(myb.index,axis=0).reindex(myb.index,axis=1)
-
-    myV = utils.cov_nearest(myV,threshold=1e-10)
+    myV = V.reindex(myb.index, axis=0).reindex(myb.index, axis=1)
+    myV = utils.cov_nearest(myV, threshold=1e-10)
 
     if R is not None:
-        myV = R.T@myV@R
-        myb = R.T@b
+        # When the caller restricted to a subset, restrict R the same way
+        # so the linear combinations remain conformable.
+        myR = R.loc[myb.index] if var_selection is not None else R
+        myV = myR.T @ myV @ myR
+        myb = myR.T @ myb
         if np.isscalar(myV):
             myV = np.array([[myV]])
             myb = np.array([[myb]])
@@ -2200,8 +2209,56 @@ def test_chi2():
     X = np.linspace(.05,.95,10)
     assert np.linalg.norm(p.quantile(X) - X)/len(X) < 1e-1
 
+
+def _as_scalar(x):
+    """chi2_test returns (chi2, p) as 1x1 ndarrays / DataFrames in some
+    code paths; extract a plain float for comparison."""
+    return float(np.asarray(x).reshape(-1)[0])
+
+
+def test_chi2_test_var_selection_and_R_together():
+    """When =var_selection= and =R= are both supplied, =R= is now
+    auto-restricted to the selected subset; the previous code raised
+    =ValueError: matrices are not aligned= because =R.T @ b= was
+    formed against the *unrestricted* coefficient vector while
+    =myV= had already been sliced down.
+    """
+    labels = ['a', 'b', 'c']
+    V = pd.DataFrame(np.eye(3), index=labels, columns=labels)
+    np.random.seed(0)
+    b = pd.DataFrame(
+        stats.multivariate_normal(cov=V).rvs(),
+        index=labels, columns=['Coefficients'])
+
+    # R indexed over the full label set, but the caller asks to test
+    # only the (a, b) subset.  Should run, not raise.
+    R = pd.DataFrame(np.eye(3)[:, :2], index=labels, columns=['c1', 'c2'])
+    chi2_stat, p = tests.chi2_test(b, V, var_selection=['a', 'b'], R=R)
+    assert 0.0 <= _as_scalar(p) <= 1.0
+    assert _as_scalar(chi2_stat) >= 0.0
+
+
+def test_chi2_test_var_selection_and_identity_R_match_selection_only():
+    """An identity =R= over the selected subset must produce the same
+    test as supplying =var_selection= alone."""
+    labels = ['a', 'b', 'c']
+    V = pd.DataFrame(np.eye(3), index=labels, columns=labels)
+    np.random.seed(1)
+    b = pd.DataFrame(
+        stats.multivariate_normal(cov=V).rvs(),
+        index=labels, columns=['Coefficients'])
+
+    chi2_a, p_a = tests.chi2_test(b, V, var_selection=['a', 'b'])
+    R_id = pd.DataFrame(np.eye(2), index=['a', 'b'], columns=['c1', 'c2'])
+    chi2_b, p_b = tests.chi2_test(b, V, var_selection=['a', 'b'], R=R_id)
+    np.testing.assert_allclose(_as_scalar(chi2_a), _as_scalar(chi2_b), rtol=1e-10)
+    np.testing.assert_allclose(_as_scalar(p_a), _as_scalar(p_b), rtol=1e-10)
+
+
 if __name__ == '__main__':
     test_chi2()
+    test_chi2_test_var_selection_and_R_together()
+    test_chi2_test_var_selection_and_identity_R_match_selection_only()
  #+end_src
 ** Skillings-Mack Test (Generalization of Friedman Test)
 This implements a version of the test proposed in [cite/t:@skillings-mack81], which generalizes the Friedman rank test to the case in which data is incomplete.  Because the Friedman test is a special case, we also create a =friedman= test.
@@ -2634,29 +2691,50 @@ if __name__ == '__main__':
 #+end_src
 ** Cragg-Donald Reduced Rank Test
 #+begin_src python :tangle metrics_miscellany/tests.py
-def cragg_donald(X,Q):
+def cragg_donald(X, Q):
     r"""
-    Cragg-Donald (1997) test for weak instruments.
+    Cragg-Donald (1993) reduced-rank / weak-instruments test.
 
-    In multivariate regression
+    In the reduced form
 
-    X = Q\Pi + v
+        X = Q\Pi + v,
 
-    We test null hypothesis that the rank of \Pi is less than the rank of X.
+    where X is N x m (endogenous regressors), Q is N x l (instruments)
+    and \Pi is l x m, we test
 
-    Returns a statistic distributed chi2, along with relevant p-value
+        H_0:  rank(\Pi) = m - 1
+        H_1:  rank(\Pi) = m  (full rank, i.e. the instruments identify
+                              every column of X).
+
+    The statistic is
+
+        (N - l) x lambda_min( (X' M_Q X)^{-1} X' P_Q X ),
+
+    which under H_0 is asymptotically chi-squared with
+
+        df = l - m + 1.
+
+    Previous versions used =df = N - m + 1= (a sample-size-based
+    degree of freedom), which made the p-value collapse to 1.0 for
+    any reasonable N -- the test never rejected.  The correct df
+    depends only on the rank deficit, not on the sample size.
+
+    Returns a (statistic, p-value) pair.
     """
-    teststat = (X.T@X.resid(Q)).inv@(X.T@X.proj(Q))
+    n, k = Q.shape   # k is the number of instruments l
+    m = X.shape[1]   # number of endogenous regressors
 
-    teststat = teststat.eig()[0].min()
+    assert k >= m, (
+        f"Cragg-Donald requires at least as many instruments as endogenous "
+        f"regressors (got l={k}, m={m}).")
 
-    n,k = Q.shape
+    teststat = (X.T @ X.resid(Q)).inv @ (X.T @ X.proj(Q))
+    teststat = (n - k) * teststat.eig()[0].min()
 
-    teststat = (n-k)*teststat
+    df = k - m + 1
+    pvalue = 1 - chi2(df).cdf(teststat)
 
-    pvalue = 1 - chi2(n-X.shape[1]+1).cdf(teststat)
-
-    return teststat,pvalue
+    return teststat, pvalue
 
 #+end_src
 *** Test of Cragg-Donald
@@ -2670,12 +2748,18 @@ import numpy as np
 import pytest
 
 
-def test_cragg_donald_returns_valid_pvalue():
-    """Smoke test: the function returns (statistic, p-value) with
-    p in [0, 1].  Previously =test_size= only printed and never
-    asserted, so any breakage went undetected by pytest."""
+def _rank_deficient_pi(rng, l, m, rank):
+    """Random (l, m) matrix of exactly the requested rank."""
+    A = rng.standard_normal((l, rank))
+    B = rng.standard_normal((rank, m))
+    return A @ B
+
+
+def test_cragg_donald_rejects_under_full_rank():
+    """Under the alternative (full-rank Pi with strong signal), the
+    test should reject at every conventional level."""
     rng = np.random.default_rng(0)
-    n, m, l = 1_000, 3, 5  # over-identified, full-rank Pi
+    n, m, l = 1_000, 3, 5
     Pi = rng.standard_normal((l, m))
     Z = dm.DataMat(rng.standard_normal((n, l)))
     U = dm.DataMat(rng.standard_normal((n, m)))
@@ -2684,18 +2768,53 @@ def test_cragg_donald_returns_valid_pvalue():
     s, p = cragg_donald(X, Z)
     assert np.isfinite(s)
     assert 0.0 <= float(p) <= 1.0
+    assert float(p) < 1e-3, (
+        f"With a strong full-rank Pi (rank=m=3, l=5, n=1000) the test "
+        f"should reject decisively; got p={p}.  This catches the previous "
+        f"=df = n - X.shape[1] + 1= bug, which left the test never able to "
+        f"reject.")
 
 
-# NOTE: an attempt at a size check (Monte Carlo average p ~ 0.5 under a
-# full-rank Pi) collapsed to p = 1.0 in every iteration with the current
-# =cragg_donald= implementation -- the chi-square degrees-of-freedom
-# expression in =metrics_miscellany.tests.cragg_donald= looks suspect
-# (df = n - X.shape[1] + 1), so the test statistic never approaches the
-# critical region.  Left as a follow-up; see the code review notes.
+@pytest.mark.slow
+def test_cragg_donald_size_under_null():
+    """Under the null (rank(Pi) = m - 1) the p-values should be
+    (approximately) uniform.  Permissive KS bound to avoid CI flakiness."""
+    from scipy.stats import kstest
+    rng = np.random.default_rng(1)
+    n, m, l = 1_000, 3, 5
+    Z = dm.DataMat(rng.standard_normal((n, l)))
+
+    Ps = []
+    for _ in range(300):
+        Pi = _rank_deficient_pi(rng, l, m, rank=m - 1)
+        U = dm.DataMat(rng.standard_normal((n, m)))
+        X = Z @ Pi + U
+        _, p = cragg_donald(X, Z)
+        Ps.append(float(p))
+    avg = np.mean(Ps)
+    ks_p = kstest(Ps, 'uniform').pvalue
+    assert abs(avg - 0.5) < 0.1, (
+        f"Average p-value {avg:.3f} suspiciously far from 0.5.")
+    assert ks_p > 0.01, (
+        f"KS p={ks_p:.4f}: under H_0 the p-values look non-uniform.")
+
+
+def test_cragg_donald_asserts_overid():
+    """l < m is under-identified and the test is undefined."""
+    rng = np.random.default_rng(2)
+    n, m, l = 100, 4, 2  # only 2 instruments for 4 endogenous regressors
+    Pi = rng.standard_normal((l, m))
+    Z = dm.DataMat(rng.standard_normal((n, l)))
+    U = dm.DataMat(rng.standard_normal((n, m)))
+    X = Z @ Pi + U
+    with pytest.raises(AssertionError, match="at least as many instruments"):
+        cragg_donald(X, Z)
 
 
 if __name__ == '__main__':
-    test_cragg_donald_returns_valid_pvalue()
+    test_cragg_donald_rejects_under_full_rank()
+    test_cragg_donald_size_under_null()
+    test_cragg_donald_asserts_overid()
 #+end_src
 
 
