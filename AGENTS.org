@@ -43,11 +43,38 @@ execute repeatably.
 - Prefer Make targets over ad-hoc invocations:
   - =make quick-check= for the default lint/type/test sweep.
   - =make slow-tests= for marked slow cases.
+  - =make coverage= for a coverage report with both terminal-missing
+    and HTML output under =htmlcov/=.  Settings live in
+    =[tool.coverage.*]= in =pyproject.toml=; tests are omitted so the
+    headline number reflects production-code coverage only.
   - =make use-local-datamat= to override the virtualenv with the sibling =DataMat= checkout
     during tandem development; run =poetry install --sync= when finished.
 - Stick to fast search utilities (=rg=, =python - <<'PY'= scripts) for inspection; avoid
   destructive commands like =rm -rf= or =git reset --hard=.
 - When exporting Org blocks, reuse =tangle.sh= or documented batch =emacs= commands.
+
+* Org-tangle workflow (operational notes)
+- =metrics_miscellany.org= is the canonical source.  Source code in
+  =metrics_miscellany/*.py= is regenerated from it by =./tangle.sh=
+  (invoked indirectly by every Make target except =clean=).  Never
+  hand-edit a tangled .py file -- the change will be lost on the next
+  tangle.
+- A handful of test files (=test_binary_ops.py=, =test_factor_regression.py=,
+  =test_ols_vs_statsmodels.py=) are tracked in git despite the
+  =metrics_miscellany/*= line in =.gitignore=.  When the canonical
+  org block changes, refresh them with =git add -f path/to/file.py=
+  so the committed tangle output stays in sync with the source.  The
+  unchecked-in remainder (=test/test_*.py= produced by tangling) is
+  regenerated locally and should not be committed.
+- Deleting a source block from the .org file does NOT delete the
+  corresponding tangled .py.  Stale outputs persist on disk and
+  pytest may still discover them.  Always =rm= the corresponding
+  file after deleting an org block.
+- Two =#+begin_src python :tangle path/to/same_file.py= blocks targeting
+  the same path are silently concatenated.  Grep the org file
+  (=grep ':tangle path/to/file.py' metrics_miscellany.org=) before
+  adding a block, and =wc -l= the tangled output after a major edit
+  to catch unintended duplication.
 
 * Collaboration Protocol
 - **Task intake**: restate the assignment, list target files, flag ambiguities before editing.
@@ -82,3 +109,58 @@ Use the format below when updating this guide or other automation policies:
 ** <2025-10-27 Mon> Assistant (Codex CLI)
 - Initial version tailored to the Metrics_Miscellany workflow.
 - Captured Poetry-based tooling, quick-check expectations, and attribution rules for agents.
+
+** <2026-05-26 Tue> Sue (Claude Opus 4.7, 1M context)
+- Code-review pass on multiindex handling and miscellaneous estimator
+  routines.  Eleven commits landed; suite went from 28 to 73 tests, all
+  passing.  Production-only coverage went from untracked to 79.3%
+  (=order_statistics.py= 20% -> 100%; =utils.py= 47% -> 73.8%;
+  =estimators.py= 66% -> 85.9%).
+- Substantive bug fixes (each documented in its commit):
+  - =dummies= MultiIndex level names were hash-seed-dependent (set-based
+    partitioning); now order-preserving.
+  - =random.permutation= / =randomization_inference= "permute within
+    fixed levels" idiom was a no-op shuffle; now actually permutes.
+  - =linear_gmm= recursive call dropped =return_Omega=.
+  - =restricted_tsls= R-supplied branch crashed before the solver and
+    referenced an undefined =lm= on return; rewritten around a NumPy
+    saddle-point solve.
+  - =cragg_donald= chi-square df was =n - m + 1= (scaled with sample
+    size); now =l - m + 1=, the correct asymptotic.  Empirically
+    verified: uniform p-values under H_0 across multiple (n, m, l).
+  - =chi2_test= raised =ValueError: matrices are not aligned= when
+    =var_selection= and =R= were both supplied; now auto-restricts R
+    to the selected subset.
+  - =utils.diag(series, sparse=True)= returned NaN off-diagonal; now
+    explicit fill_value=0 SparseDtype while preserving sparse memory.
+  - =utils.sqrtm= could not detect indefinite input (guard inspected
+    singular values, which are non-negative); rewritten around
+    =eigh= with a tolerance window for FP noise.
+  - =kron= silently mishandled flat-Index operands by character-
+    unpacking string labels; reworked to promote labels through
+    =MultiIndex.from_tuples= safely.
+- Test-hygiene cleanups: three former script-style test files
+  (=test_kr79.py=, =test_randomization_inference.py=, =test_fwl_regression.py=)
+  ran their bodies at every pytest collection but defined no
+  =test_*= functions; converted to proper seeded tests or removed.
+- New infrastructure: =pytest-cov= dev dep, =[tool.coverage.*]= in
+  =pyproject.toml=, =make coverage= target, coverage artifacts
+  added to =.gitignore=.
+- Outstanding follow-ups for future sessions:
+  - =GMM_class= (OO wrapper around =gmm= procedural module) has 27%
+    coverage; no test exercises =GMM.__init__= or its methods.
+  - =gmm.continuously_updated_gmm=, =gmm.dgN=, =gmm.Vb= are untested.
+  - =kernel_methods.rectangular=, =kernel_methods.gram= DataMat
+    branch are untested.
+  - =utils.kron='s sparse path and ndarray-x-ndarray case lack tests;
+    several =drop_vestigial_levels= branches likewise.
+  - =factor_analysis= still has only the =svd_method='eig'= branch
+    working; =lapack=/=randomized= remain =NotImplementedError= stubs.
+  - Procedural =gmm= module mutates module-attribute state
+    (=gmm.gj = gj=) -- two =GMM= instances clobber each other.  Worth
+    deprecating in favor of the class API once that has coverage.
+  - =DataMat.dg()= (datamat package, not this repo) carries the same
+    sparse-fill-value-NaN issue that =utils.diag= just fixed.
+    =kernel_methods.kernel_regression_variance= now sidesteps it by
+    using NumPy's =diag= directly; flag if you touch other DataMat-
+    based code that calls =.dg().dg()=.
