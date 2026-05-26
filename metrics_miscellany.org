@@ -59,19 +59,39 @@ def eig(A,hermitian=False):
 
     return s2,u
 
-def diag(X,sparse=True):
+def diag(X, sparse=True):
+    """Build or extract a diagonal matrix.
 
+    * Square DataFrame/ndarray input: returns the diagonal as a
+      pandas Series (DataFrame input) or 1-d ndarray (ndarray input).
+    * 1-d Series input: returns a diagonal matrix whose rows and
+      columns are labelled by =X.index=.  =sparse=True= (the default)
+      keeps memory linear in =len(X)= by routing through
+      =scipy.sparse=; =sparse=False= builds a dense DataFrame.
+
+    The sparse path used to leave the off-diagonal entries as NaN --
+    =pd.DataFrame.sparse.from_spmatrix= picks a fill value of NaN
+    for float dtypes, and the source =scipy.sparse.diags= matrix
+    has no entries off the diagonal -- which silently propagated
+    through any arithmetic that did not go through =matrix_product=
+    (the latter calls =.fillna(0)= on its inputs and so masked the
+    bug).  We now =fillna(0)= the resulting frame and re-cast it to
+    =SparseDtype(float64, fill_value=0)= so the off-diagonal is
+    actually zero while the sparse memory benefit is preserved.
+    """
     try:
         assert X.shape[0] == X.shape[1]
-        d = pd.Series(np.diag(X),index=X.index)
-    except IndexError: # X is a series?
+        d = pd.Series(np.diag(X), index=X.index)
+    except IndexError:  # X is a Series-like 1-d
         if sparse:
-            # We can wind up blowing ram if not careful...
-            d = scipy_sparse.diags(X.values)
-            d = pd.DataFrame.sparse.from_spmatrix(d,index=X.index,columns=X.index)
+            spmat = scipy_sparse.diags(X.values)
+            d = pd.DataFrame.sparse.from_spmatrix(
+                spmat, index=X.index, columns=X.index)
+            d = d.fillna(0).astype(pd.SparseDtype('float64', fill_value=0.0))
         else:
-            raise NotImplementedError
-    except AttributeError: # Not a pandas object?
+            d = pd.DataFrame(
+                np.diag(X.values), index=X.index, columns=X.index)
+    except AttributeError:  # Not a pandas object
         d = np.diag(X)
 
     return d
@@ -439,18 +459,49 @@ def svd_missing(A,max_rank=None,min_obs=None,heteroskedastic=False,verbose=False
 
     return u,s,v
 
-def sqrtm(A,hermitian=False):
+def sqrtm(A, hermitian=False, tol=None):
     """
-    Return a positive semi-definite square root for the matrix A.
+    Return a positive semi-definite square root S of A satisfying
+    S @ S == A.
 
-    NB: A must itself be positive semi-definite.
+    A must be (approximately) symmetric positive semi-definite.  The
+    function symmetrizes A internally and computes an eigendecomposition
+    via =np.linalg.eigh=; negative eigenvalues that lie within =tol= of
+    zero are clipped to zero (FP noise from a well-formed PSD input),
+    while any eigenvalue more negative than =tol= raises =ValueError=.
+    The default =tol= is =1e-10 * max(1, |eigval|.max)=.
+
+    The previous implementation inspected =np.linalg.svd='s singular
+    values for negativity -- but singular values are non-negative by
+    definition, so the guard could never trigger and an indefinite
+    input silently received a wrong "square root" via U @ diag(sqrt(s))
+    @ V.T (a polar-factor-like object that does not satisfy S @ S = A
+    when A is indefinite).
+
+    The =hermitian= flag is retained for backward compatibility; it has
+    no effect now that the function always symmetrizes A before
+    decomposing.
     """
-    u,s,vt = svd(A,hermitian=hermitian)
+    del hermitian  # retained only for backward compatibility
 
-    if np.any(s<0):
-        raise ValueError("Matrix must be positive semi-definite.")
+    A_arr = np.asarray(A)
+    A_sym = (A_arr + A_arr.T) / 2.0
+    eigvals, eigvecs = np.linalg.eigh(A_sym)
 
-    return u@np.diag(np.sqrt(s))@vt
+    if tol is None:
+        tol = 1e-10 * max(1.0, float(np.abs(eigvals).max()))
+
+    if eigvals.min() < -tol:
+        raise ValueError(
+            "Matrix must be positive semi-definite; smallest eigenvalue "
+            f"is {eigvals.min():.4g} (tol = {tol:.4g}).")
+
+    eigvals_clipped = np.maximum(eigvals, 0.0)
+    S = eigvecs @ np.diag(np.sqrt(eigvals_clipped)) @ eigvecs.T
+
+    if isinstance(A, pd.DataFrame):
+        return pd.DataFrame(S, index=A.index, columns=A.columns)
+    return S
 
 def cholesky(A):
     """
@@ -791,14 +842,10 @@ def test_diag_extracts_from_square_dataframe(square_psd):
 
 def test_diag_constructs_from_series():
     """diag(Series) returns a (sparse) diagonal matrix labelled by the
-    Series's index on both axes.
-
-    NOTE: with the default =sparse=True= the off-diagonal entries
-    materialize as NaN (a quirk of =pd.DataFrame.sparse.from_spmatrix=
-    when the source =scipy.sparse.diags= matrix carries no fill value).
-    Downstream arithmetic against this matrix would silently propagate
-    NaNs.  Flagged as a follow-up; this test only checks the diagonal.
-    """
+    Series's index on both axes.  The off-diagonal entries must be 0
+    (not NaN: an earlier version returned NaN there, which silently
+    propagated through any arithmetic that did not go through
+    matrix_product's =.fillna(0)= safety net)."""
     s = pd.Series([1.0, 2.0, 3.0], index=['a', 'b', 'c'])
     D = utils.diag(s)
     assert D.shape == (3, 3)
@@ -806,8 +853,18 @@ def test_diag_constructs_from_series():
     assert list(D.columns) == ['a', 'b', 'c']
 
     arr = np.asarray(D.sparse.to_dense() if hasattr(D, 'sparse') else D)
-    diagonal = np.array([arr[i, i] for i in range(3)])
-    np.testing.assert_allclose(diagonal, [1.0, 2.0, 3.0])
+    np.testing.assert_allclose(arr, np.diag([1.0, 2.0, 3.0]))
+
+
+def test_diag_series_dense_path():
+    """The dense (sparse=False) path used to raise NotImplementedError;
+    it now returns a properly-labelled dense DataFrame."""
+    s = pd.Series([1.0, 2.0, 3.0], index=['a', 'b', 'c'])
+    D = utils.diag(s, sparse=False)
+    assert isinstance(D, pd.DataFrame)
+    np.testing.assert_array_equal(D.values, np.diag([1.0, 2.0, 3.0]))
+    assert list(D.index) == ['a', 'b', 'c']
+    assert list(D.columns) == ['a', 'b', 'c']
 
 
 def test_diag_passthrough_for_ndarray():
@@ -824,27 +881,31 @@ def test_sqrtm_squares_to_input(square_psd):
     np.testing.assert_allclose(recon, square_psd.values, atol=1e-8)
 
 
-def test_sqrtm_does_not_currently_detect_indefiniteness():
-    """sqrtm's PSD guard tests =np.any(s < 0)= where =s= comes from
-    =np.linalg.svd= -- but singular values are non-negative by
-    definition, so the guard can never fire and an indefinite input
-    silently gets a wrong "square root."
-
-    Documenting the bug here so it's not silently re-introduced if
-    someone "fixes" the test.  When the guard is repaired (by
-    inspecting eigenvalues via =eigh= rather than singular values),
-    this test should flip to =pytest.raises(ValueError, ...)= and
-    the docstring above should be removed.
-    """
+def test_sqrtm_rejects_indefinite():
+    """An indefinite (non-PSD) input raises ValueError.  An earlier
+    implementation inspected singular values (always non-negative)
+    rather than eigenvalues, so the guard could never trigger."""
     bad = pd.DataFrame(np.diag([1.0, -1.0]), index=['a', 'b'],
                        columns=['a', 'b'])
-    # No exception today:
-    S = utils.sqrtm(bad, hermitian=True)
-    # And the result fails the defining property S @ S.T == bad:
-    recon = S.values @ S.values.T
-    assert not np.allclose(recon, bad.values), (
-        "If this assertion ever flips to True, the bug is gone and "
-        "the test should be rewritten to check for the ValueError.")
+    with pytest.raises(ValueError, match="positive semi-definite"):
+        utils.sqrtm(bad)
+
+
+def test_sqrtm_tolerates_tiny_negative_eigenvalues():
+    """FP noise near the boundary should not trip the PSD guard."""
+    near_psd = pd.DataFrame(np.diag([1.0, 1e-15]),
+                            index=['a', 'b'], columns=['a', 'b'])
+    S = utils.sqrtm(near_psd)
+    np.testing.assert_allclose(S.values @ S.values, near_psd.values,
+                               atol=1e-12)
+
+
+def test_sqrtm_returns_symmetric_root(square_psd):
+    """The returned S should be symmetric and satisfy S @ S == A."""
+    S = utils.sqrtm(square_psd)
+    np.testing.assert_allclose(S.values, S.values.T, atol=1e-10)
+    np.testing.assert_allclose(S.values @ S.values, square_psd.values,
+                               atol=1e-8)
 
 
 def test_cholesky_round_trip(square_psd):
