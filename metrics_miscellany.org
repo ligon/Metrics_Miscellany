@@ -414,39 +414,51 @@ def drop_missing(X,infinities=False):
 
 def dummies(df,cols,suffix=False):
     """From a dataframe df, construct an array of indicator (dummy) variables,
-    with a column for every unique row df[cols]. Note that the list cols can
-    include names of levels of multiindices.
+    with a column for every unique tuple of values in df[cols].  The list
+    =cols= can mix names of regular columns of df with names of levels of a
+    MultiIndex on df.index.
 
-    The optional argument =suffix=, if provided as a string, will append suffix
-    to column names of dummy variables. If suffix=True, then the string '_d'
-    will be appended.
+    The returned DataFrame has a MultiIndex on its columns whose level order
+    matches the order of names supplied in =cols=.  (Prior versions used
+    =set= operations internally, which leaked Python's hash randomization
+    into the MultiIndex level order, so the output could change from one
+    process to the next.)
+
+    The optional argument =suffix=, if provided as a non-empty string, is
+    appended to each component of the column labels.  If =suffix=True= the
+    string '_d' is used.
     """
-    idxcols = list(set(df.index.names).intersection(cols))
-    colcols = list(set(cols).difference(idxcols))
+    if isinstance(cols, str):
+        cols = [cols]
+    cols = list(cols)
 
-    if len(idxcols):
-        idx = use_indices(df,idxcols)
-        v = concat([idx,df[colcols]],axis=1)
+    # Partition cols into "from the row index" vs. "regular columns" while
+    # preserving the user-supplied order.
+    index_names = {n for n in (df.index.names or ()) if n is not None}
+    idxcols = [c for c in cols if c in index_names]
+    colcols = [c for c in cols if c not in index_names]
+
+    if idxcols:
+        idx = use_indices(df, idxcols)
+        v = concat([idx, df[colcols]], axis=1) if colcols else idx
     else:
         v = df[colcols]
 
-    usecols = []
-    for s in idxcols+colcols:
-        usecols.append(v[s].squeeze())
+    usecols = [v[c].squeeze() for c in cols]
 
-    tuples = pd.Series(list(zip(*usecols)),index=v.index)
+    tuples = pd.Series(list(zip(*usecols)), index=v.index)
 
     v = get_dummies(tuples).astype(int)
 
-    if suffix==True:
+    if suffix is True:
         suffix = '_d'
-
-    if suffix!=False and len(suffix)>0:
-        columns = [tuple([str(c)+suffix for c in t]) for t in v.columns]
+    add_suffix = isinstance(suffix, str) and len(suffix) > 0
+    if add_suffix:
+        columns = [tuple(str(c) + suffix for c in t) for t in v.columns]
     else:
-        columns = v.columns
+        columns = list(v.columns)
 
-    v.columns = MultiIndex.from_tuples(columns,names=idxcols+colcols)
+    v.columns = MultiIndex.from_tuples(columns, names=list(cols))
 
     return v
 #+end_src
@@ -463,8 +475,40 @@ def test_dummies():
     assert dummies(foo,['i']).shape == (4,4)
     assert dummies(foo,['cat']).shape == (4,3)
 
+def test_dummies_preserves_level_order():
+    """The order of MultiIndex level names must match the caller-supplied
+    order of =cols= and not depend on Python's hash randomization.
+    """
+    idx = pd.MultiIndex.from_product([['m','f'],['young','old']],
+                                     names=['sex','age'])
+    df = pd.DataFrame({'val':[1,2,3,4]}, index=idx)
+
+    out = dummies(df, ['sex','age'])
+    assert list(out.columns.names) == ['sex','age']
+    assert list(out.columns) == [
+        ('f','old'), ('f','young'), ('m','old'), ('m','young'),
+    ]
+
+    out2 = dummies(df, ['age','sex'])
+    assert list(out2.columns.names) == ['age','sex']
+
+def test_dummies_mixed_index_and_column():
+    """When =cols= mixes index levels and regular columns, the user-supplied
+    order must be honored.
+    """
+    idx = pd.MultiIndex.from_product([[0,1],[10,20]], names=['i','t'])
+    df = pd.DataFrame({'cat':['a','b','b','c']}, index=idx)
+
+    out_cat_first = dummies(df, ['cat','i'])
+    assert list(out_cat_first.columns.names) == ['cat','i']
+
+    out_i_first = dummies(df, ['i','cat'])
+    assert list(out_i_first.columns.names) == ['i','cat']
+
 if __name__=='__main__':
     test_dummies()
+    test_dummies_preserves_level_order()
+    test_dummies_mixed_index_and_column()
 
 #+end_src
 
@@ -2087,11 +2131,18 @@ if __name__=='__main__':
 import pandas as pd
 import numpy as np
 from metrics_miscellany.estimators import ols
+from metrics_miscellany.random import permutation as _permutation
 
 def randomization_inference(vars,X,y,permute_levels=None,R=None,tol=1e-3,VERBOSE=False,return_draws=False):
     """
     Return p-values associated with hypothesis that coefficients
     associated with vars are jointly equal to zero.
+
+    The optional argument =permute_levels= names index levels along which
+    the values of X[vars] are shuffled; the complementary "fixed" levels
+    are held in place and the block of values across them is reassigned
+    jointly.  Delegates to =metrics_miscellany.random.permutation= so the
+    two entry points share one (correct) implementation.
 
     Ethan Ligon                                       June 2021
     """
@@ -2109,12 +2160,7 @@ def randomization_inference(vars,X,y,permute_levels=None,R=None,tol=1e-3,VERBOSE
     Chi2 = []
     while (np.linalg.norm(p-last)>tol) or (i < 30):
         last = p
-        if permute_levels is None:
-            P= pd.DataFrame(np.random.permutation(X.loc[:,vars]),index=X.index,columns=vars)
-        else:
-            levels = X.index.names
-            fixed = X.index.names.difference(permute_levels)
-            P = pd.DataFrame(X.loc[:,vars].unstack(fixed).sample(frac=1).stack(fixed).values,index=X.index,columns=vars)
+        P = _permutation(X, columns=vars, permute_levels=permute_levels)
 
         myX = pd.concat([X.loc[:,X.columns.difference(vars)],P],axis=1)
         b,V = ols(myX,y)
@@ -2500,37 +2546,127 @@ def trim(df,alpha):
 import numpy as np
 import pandas as pd
 
-def permutation(df,columns=None,permute_levels=None):
-    """Randomly permute rows of df[columns] at permute_levels.
+def permutation(df, columns=None, permute_levels=None):
+    """Return a DataFrame whose values along =columns= are a random
+    permutation of those in df.
+
+    When =permute_levels= is None, the rows of df[columns] are shuffled
+    along the full row axis (a complete permutation).
+
+    When =permute_levels= is supplied, the *fixed* index levels (those
+    names in df.index not in =permute_levels=) are held in place while
+    coordinates of the =permute_levels= are jointly relabelled.  In
+    particular, the values at every coordinate of =permute_levels= are
+    reassigned, as a block across fixed levels, the values from some
+    randomly chosen other coordinate of =permute_levels=.
+
+    Earlier versions used =df.loc[:, columns].unstack(fixed).sample(
+    frac=1).stack(fixed)= to realize the within-block permutation, but
+    that idiom moves labels along with values and therefore never
+    induces a true permutation of the data; any apparent shuffling came
+    only from =stack='s lexsort and was misaligned with respect to the
+    original row index.  This implementation permutes the underlying
+    NumPy values while keeping the row labels of the wide pivot in
+    place, which produces the intended permutation.
     """
 
-    df = pd.DataFrame(df) # Make sure we have a DataFrame.
+    df = pd.DataFrame(df)  # Make sure we have a DataFrame.
 
-    if columns is None: columns = df.columns
+    if columns is None:
+        columns = df.columns
+    sub = df.loc[:, columns]
 
     if permute_levels is None:
-        P = pd.DataFrame(np.random.permutation(df.loc[:,columns]),index=df.index,columns=columns)
-    else:
-       fixed = df.index.names.difference(permute_levels)
-       P = pd.DataFrame(df.loc[:,columns].unstack(fixed).sample(frac=1).stack(fixed).values,index=df.index,columns=columns)
+        return pd.DataFrame(np.random.permutation(sub.values),
+                            index=df.index, columns=columns)
 
-    return P
+    if isinstance(permute_levels, str):
+        permute_levels = [permute_levels]
+
+    fixed = [n for n in df.index.names if n not in permute_levels]
+    if not fixed:
+        return pd.DataFrame(np.random.permutation(sub.values),
+                            index=df.index, columns=columns)
+
+    # Pivot so each row is one permute-level coordinate and the columns
+    # enumerate fixed-level coordinates (times the original variables).
+    wide = sub.unstack(fixed)
+
+    # Shuffle values *without* moving the row labels.  This is what
+    # actually realizes the permutation: each permute-level coordinate
+    # is reassigned the block of values from a randomly chosen other
+    # coordinate, while the alignment along the fixed levels is kept.
+    shuffled = pd.DataFrame(np.random.permutation(wide.values),
+                            index=wide.index, columns=wide.columns)
+
+    long = shuffled.stack(fixed)
+    long = long.reindex(df.index)
+
+    if isinstance(long, pd.Series):
+        long = long.to_frame()
+    long.columns = columns
+    return long
 
 #+end_src
 *** Test permutation
 #+begin_src python :tangle metrics_miscellany/test/test_permutation.py
 import numpy as np
 import pandas as pd
-from metrics_miscellany import random
+from metrics_miscellany import random as mm_random
 
-T = pd.Series(np.random.rand(10)>.5)
 
-df = pd.DataFrame({'a':T,'b':T}).stack()
-df = df + 0
-df.index.names = ['i','t']
+def test_permutation_invariant_across_fixed_level():
+    """When the values are constant across the fixed level =t=, the
+    permuted output must also be constant across =t=."""
+    np.random.seed(0)
+    T = pd.Series(np.random.rand(10) > .5)
+    df = pd.DataFrame({'a': T, 'b': T}).stack()
+    df = df + 0
+    df.index.names = ['i', 't']
 
-p = random.permutation(df,permute_levels=['i'])
+    p = mm_random.permutation(df, permute_levels=['i'])
 
-assert np.all(p.unstack('t').std(axis=1)==0)
+    assert np.all(p.unstack('t').std(axis=1) == 0)
+
+
+def test_permutation_actually_permutes():
+    """The within-fixed-level reassignment must be a real permutation:
+    the multiset of values along the permuted level is preserved, the
+    pairing across fixed levels stays intact, and a non-identity
+    permutation occurs with high probability for n=50 distinct values.
+    """
+    n = 50
+    T = np.arange(n, dtype=float)
+    df = pd.DataFrame({'a': T, 'b': T + 1000.0}).stack().to_frame('v')
+    df.index.names = ['i', 't']
+
+    np.random.seed(2)
+    p = mm_random.permutation(df, permute_levels=['i'])
+
+    mapping_a = p.xs('a', level='t')['v'].values
+    mapping_b = p.xs('b', level='t')['v'].values - 1000.0
+
+    # The block across fixed levels stays paired:
+    np.testing.assert_array_equal(mapping_a, mapping_b)
+    # And the assignment is a permutation of arange(n):
+    assert sorted(mapping_a.tolist()) == list(range(n))
+    # Identity has probability 1/n!, so with this seed we expect non-identity.
+    assert not np.array_equal(mapping_a, np.arange(n))
+
+
+def test_permutation_full_axis():
+    """With permute_levels=None we get a full permutation of rows."""
+    np.random.seed(3)
+    df = pd.DataFrame({'v': np.arange(20.0)})
+    p = mm_random.permutation(df)
+    assert sorted(p['v'].tolist()) == list(range(20))
+    # And it actually shuffles (with overwhelming probability).
+    assert not np.array_equal(p['v'].values, np.arange(20.0))
+
+
+if __name__ == '__main__':
+    test_permutation_invariant_across_fixed_level()
+    test_permutation_actually_permutes()
+    test_permutation_full_axis()
 
 #+end_src
