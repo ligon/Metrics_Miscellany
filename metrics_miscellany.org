@@ -2635,7 +2635,7 @@ if __name__ == '__main__':
 ** Cragg-Donald Reduced Rank Test
 #+begin_src python :tangle metrics_miscellany/tests.py
 def cragg_donald(X,Q):
-    """
+    r"""
     Cragg-Donald (1997) test for weak instruments.
 
     In multivariate regression
