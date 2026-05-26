@@ -794,92 +794,132 @@ if __name__=='__main__':
 #+end_src
 ** Two-stage Least Squares
 #+begin_src python :tangle metrics_miscellany/estimators.py
-def restricted_tsls(y,X,R=None,r=None,Z=None,cov='HC3'):
+def restricted_tsls(y, X, R=None, r=None, Z=None, cov='HC3'):
     """
-    Estimate b in y = Xb + u s.t. Rb = r.
+    Estimate b in y = Xb + u subject to Rb = r.
 
-    Return b and lm, a vector of Lagrange multipliers associated with the constraints,
-    as well as estimates of Omega = E Z'ee'Z and the covariance matrix of b.
+    Parameters
+    ----------
+    y : Series or one-column DataFrame -- the dependent variable.
+    X : DataMat/DataFrame of regressors (N x k).
+    R : optional DataMat/DataFrame of restrictions (m x k).  Each row of
+        R encodes one linear restriction Rb = r.  When R is None the
+        function reduces to ordinary TSLS.
+    r : right-hand side of the restrictions (length m).  Required when
+        R is supplied.
+    Z : instrument matrix (N x l); defaults to X.
+    cov : 'OLS' or one of 'HC0'..'HC3' (default 'HC3').
+
+    Returns
+    -------
+    Without R:  (b, Omega, V)
+    With R:     (b, lm, Omega, V)
+
+    where =lm= is the vector of Lagrange multipliers associated with
+    the rows of R.
+
+    Notes
+    -----
+    The restricted estimator solves the saddle-point system
+
+        [ X' P_Z X    R' ] [ b  ]   [ X' P_Z y ]
+        [ R           0  ] [ lm ] = [   r      ]
+
+    in NumPy.  An earlier implementation tried to assemble this block
+    via =datamat.concat= with custom MultiIndex levels and never
+    reached the solver when R was supplied; the Lagrange-multiplier
+    return path also referred to an undefined name.
     """
     if Z is None:
         Z = X
 
-    N,k = X.shape
-    _,l = Z.shape
+    N, k = X.shape
+    _N, _l = Z.shape
+    assert N == _N, "X & Z must have same number of rows."
 
     if R is not None:
-        m,__ = R.shape
-        assert __==k, "Matrix of restrictions must be conformable with vector of parameters."
+        m, _k = R.shape
+        assert _k == k, (
+            "Matrix of restrictions must be conformable with the vector "
+            "of parameters.")
+        if r is None:
+            raise ValueError("r must be supplied when R is supplied.")
+        r_vec = np.asarray(r).reshape(-1)
+        assert r_vec.shape[0] == m, (
+            "r and R must agree on the number of restrictions.")
     else:
         m = 0
+        r_vec = None
 
-    assert N==_, "X & Z must have same number of rows."
-    assert l+m>=k, f"Need number of instruments ({l}) plus restrictions ({m}) greater than or equal to number of parameters ({k})."
+    assert _l + m >= k, (
+        f"Need #instruments ({_l}) + #restrictions ({m}) >= "
+        f"#parameters ({k}).")
 
-    Qzz = Z.T@Z/N
-    Qxz = X.T@Z/N
+    Qzz = Z.T @ Z / N
+    Qxz = X.T @ Z / N
+    Qzzinv = Qzz.inv
 
-    if Qzz.shape==(1,): # Scalar
-        Qzzinv = 1/Qzz
-    else:
-        Qzzinv = Qzz.inv
+    # Q = X' P_Z X;  rhs_b = X' P_Z y.
+    Q = N * Qxz @ Qzzinv @ Qxz.T
+    rhs_b = Qxz @ Qzzinv @ Z.T @ y
 
-    Q = N*Qxz@(Qzzinv)@Qxz.T
+    param_labels = X.columns
 
     if R is not None:
-        QRT = dm.concat({'beta':Q,'lm':R.T},axis=1,levelnames=True,toplevelname='parms')
-        R0 = dm.concat({'beta':R,
-                        'lm':dm.DataMat(index=R.index,columns=R.index).fillna(0)},
-                       axis=1,levelnames=True,toplevelname='parms')
-        lhs = dm.concat({'beta':QRT,'lm':R0},levelnames=True,toplevelname='parms')
-        rhs = dm.concat({'beta':Qxz@(Qzzinv)@Z.T@y,'lm':r},levelnames=True,toplevelname='parms')
-        XR = dm.concat([X,R.T],axis=1,levelnames=True)
-        ZR = dm.concat([Z,R.T],axis=1,levelnames=True)
+        # Build the (k+m) x (k+m) saddle-point block in NumPy to avoid the
+        # label-juggling that broke the previous dm.concat-based path.
+        Qv = np.asarray(Q)
+        Rv = np.asarray(R)
+        lhs_arr = np.zeros((k + m, k + m), dtype=float)
+        lhs_arr[:k, :k] = Qv
+        lhs_arr[:k, k:] = Rv.T
+        lhs_arr[k:, :k] = Rv
+        rhs_arr = np.concatenate([np.asarray(rhs_b).reshape(-1), r_vec])
+        sol = np.linalg.solve(lhs_arr, rhs_arr)
+        b = pd.Series(sol[:k], index=param_labels, name='Coefficients')
+        lm = pd.Series(sol[k:], index=R.index, name='lm')
     else:
-        lhs = Q
-        rhs = Qxz@(Qzzinv)@Z.T@y
-        XR = X
-        ZR = Z
+        b_arr = np.linalg.solve(np.asarray(Q),
+                                np.asarray(rhs_b).reshape(-1))
+        b = pd.Series(b_arr, index=param_labels, name='Coefficients')
+        lm = None
 
-    #assert lhs.rank()>=lhs.shape[1], "Rank condition violated"
+    # Residuals using X alone -- the restrictions add no observations.
+    e = y - X @ b
 
-    B = lhs.lstsq(rhs)
+    if cov in ('HC2', 'HC3'):
+        h = X.leverage if hasattr(X, 'leverage') else utils.leverage(X)
+        if cov == 'HC2':
+            e = e / np.sqrt(1 - h)
+        else:
+            e = e / (1 - h)
 
-    e = y - XR@B
+    Ze = Z.multiply(e, axis=0)
+    Omega = Ze.T @ Ze / N
 
-    if cov=='HC2': # Use prediction errors
-        e = e/np.sqrt((1-X.leverage))
-    elif cov=='HC3':
-        e = e/(1-X.leverage)
+    D = Qxz @ Qzzinv @ Qxz.T
+    Dinv = D.inv
+    V_unr = Dinv @ (Qxz @ Qzzinv @ Omega @ Qzzinv @ Qxz.T) @ Dinv / N
 
-    Ze = ZR.multiply(e,axis=0)
-    Omega = Ze.T@Ze/N
-
-    # Redfine Qs to include restrictions
-    Qzz = ZR.T@ZR/N
-    Qxz = XR.T@ZR/N
-
-    if Qzz.shape==(1,): # Scalar
-        Qzzinv = 1/Qzz
+    if R is not None:
+        # Project to the restricted subspace via
+        #     P = I - V_unr R' (R V_unr R')^{-1} R,
+        # then V_b = P V_unr P'.
+        Rv = np.asarray(R)
+        V_unr_v = np.asarray(V_unr)
+        middle = np.linalg.inv(Rv @ V_unr_v @ Rv.T)
+        P = np.eye(k) - V_unr_v @ Rv.T @ middle @ Rv
+        V_b = pd.DataFrame(P @ V_unr_v @ P.T,
+                           index=param_labels, columns=param_labels)
     else:
-        Qzzinv = Qzz.inv
+        V_b = V_unr
 
-    D = Qxz@Qzzinv@Qxz.T
-
-    if D.shape==(1,): # Scalar
-        Dinv = 1/D
-    else:
-        Dinv = D.inv
-
-    V = Dinv@(Qxz@Qzzinv@Omega@Qzzinv@Qxz.T)@Dinv/N
-
-    if cov=='HC1':
-        V = V*(N/(N-k))
+    if cov == 'HC1':
+        V_b = V_b * (N / (N - k))
 
     if R is None:
-        return B,Omega,V
-    else:
-        return B,lm,Omega,V
+        return b, Omega, V_b
+    return b, lm, Omega, V_b
 #+end_src
 
 #+begin_src python :tangle metrics_miscellany/estimators.py
@@ -923,8 +963,74 @@ def test_tsls(N=500000,tol=1e-2):
 
     #return b,V,b_,V_
 
+
+def _make_iv_dgp(N, seed):
+    rng = np.random.default_rng(seed)
+    z = DataMat({'z': rng.standard_normal(N)})
+    u = DataVec(rng.standard_normal(N))
+    x = DataMat({'x': z.squeeze() + u})
+    x['Constant'] = 1
+    z['Constant'] = 1
+    beta = DataMat({'Coefficients': [1., 0.]}, index=['x', 'Constant'])
+    y = (x @ beta).squeeze() + u
+    return y, x, z
+
+
+def test_restricted_tsls_satisfying_constraint():
+    """When the population satisfies the restriction (Constant = 0), the
+    restricted estimator should recover the true coefficient, hold the
+    restriction exactly, and report (essentially) zero variance for the
+    restricted direction."""
+    y, x, z = _make_iv_dgp(N=200_000, seed=0)
+
+    R = DataMat([[0., 1.]], columns=['x', 'Constant'], index=['c0'])
+    r = DataVec([0.], index=['c0'])
+    b, lm, Omega, V = restricted_tsls(y, x, R=R, r=r, Z=z)
+
+    # The restriction is satisfied exactly:
+    np.testing.assert_allclose(b['Constant'], 0., atol=1e-12)
+    # The free coefficient recovers the truth (sampling noise only):
+    np.testing.assert_allclose(b['x'], 1., atol=2e-2)
+    # Output shapes / labels survive the restricted branch (DataMat may
+    # wrap flat labels as 1-tuples; flatten before comparing).
+    def _flat(idx):
+        return [t[0] if isinstance(t, tuple) and len(t) == 1 else t
+                for t in idx]
+    assert _flat(b.index) == ['x', 'Constant']
+    assert _flat(lm.index) == ['c0']
+    assert _flat(V.index) == ['x', 'Constant']
+    assert _flat(V.columns) == ['x', 'Constant']
+    # Variance along the restricted direction is zero (up to FP noise):
+    np.testing.assert_allclose(V.loc['Constant', 'Constant'], 0., atol=1e-12)
+
+
+def test_restricted_tsls_binding_constraint():
+    """A non-trivial restriction must bind: the restricted coefficient
+    equals the constraint value exactly."""
+    y, x, z = _make_iv_dgp(N=1_000, seed=1)
+
+    R = DataMat([[1., 0.]], columns=['x', 'Constant'], index=['c0'])
+    r = DataVec([0.5], index=['c0'])
+    b, lm, Omega, V = restricted_tsls(y, x, R=R, r=r, Z=z)
+
+    np.testing.assert_allclose(b['x'], 0.5, atol=1e-12)
+
+
+def test_restricted_tsls_matches_unrestricted_when_R_None():
+    """The R=None path must continue to agree with tsls()."""
+    y, x, z = _make_iv_dgp(N=10_000, seed=2)
+
+    b1, Omega1, V1 = restricted_tsls(y, x, Z=z)
+    b2, V2 = tsls(x, y, z)
+
+    np.testing.assert_allclose(b1.values, b2.values, atol=1e-12)
+
+
 if __name__=='__main__':
     test_tsls()
+    test_restricted_tsls_satisfying_constraint()
+    test_restricted_tsls_binding_constraint()
+    test_restricted_tsls_matches_unrestricted_when_R_None()
 
 #+end_src
 ** Factor Analysis (MLE)
