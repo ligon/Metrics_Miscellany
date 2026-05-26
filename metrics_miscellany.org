@@ -1106,26 +1106,19 @@ def factor_analysis(X,n_components=None,noise_variance_init=None,
     # we'll modify svd outputs to return unexplained variance
     # to allow for unified computation of loglikelihood
     if svd_method == "lapack":
-
-        def my_svd(X):
-            _, s, Vt = linalg.svd(X, full_matrices=False, check_finite=False)
-            return (
-                s[:n_components],
-                Vt[:n_components],
-                squared_norm(s[n_components:]),
-            )
+        # The previous implementation called `linalg.svd` without importing
+        # `linalg`; gate the branch so it fails immediately and tells the
+        # caller what to do instead of NameError'ing partway through.
+        raise NotImplementedError(
+            "factor_analysis(svd_method='lapack') is unfinished. "
+            "Use svd_method='eig'.")
 
     elif svd_method == "randomized":
-        random_state = check_random_state(self.random_state)
-
-        def my_svd(X):
-            _, s, Vt = randomized_svd(
-                X,
-                n_components,
-                random_state=random_state,
-                n_iter=self.iterated_power,
-            )
-            return s, Vt, squared_norm(X) - squared_norm(s)
+        # Likewise: the branch references self.random_state /
+        # self.iterated_power, which don't exist in this free function.
+        raise NotImplementedError(
+            "factor_analysis(svd_method='randomized') is unfinished. "
+            "Use svd_method='eig'.")
 
     elif svd_method == 'eig':
 
@@ -1172,19 +1165,15 @@ def factor_analysis(X,n_components=None,noise_variance_init=None,
 
         psi = np.maximum(var - np.sum(W**2, axis=0), SMALL)
     else:
-        if max_its==0: # Use hill-climbing
-            def ll():
-                ll = llconst + np.sum(np.log(s))
-                ll += unexp_var + np.sum(np.log(psi))
-                ll *= -n_samples / 2.0
-
-        else:
-            warnings.warn(
-                "FactorAnalysis did not converge."
-                + " You might want"
-                + " to increase the number of iterations.",
-                ConvergenceWarning,
-            )
+        # for/else: the loop completed without breaking, i.e. we exhausted
+        # =max_its= iterations without satisfying the tolerance.  The
+        # previous code referenced an unimported ConvergenceWarning and a
+        # second never-called local =ll= function -- both removed.
+        warnings.warn(
+            "factor_analysis did not converge in %d iterations; "
+            "increasing max_its may help." % max_its,
+            RuntimeWarning,
+        )
 
     return W, psi
 
@@ -1384,16 +1373,23 @@ class TestFWLRegression(unittest.TestCase):
         np.testing.assert_allclose(reconstructed-self.direct_coefs,0,atol=1e-2)
 
     def test_reconstruct_coefficients(self):
-        # Run FWL regression
+        # Run FWL regression and ask reconstruct_coefficients_from_fwl for
+        # both shapes of output; the two views must agree.  (The previous
+        # body checked for variable names ['X1','X2','X3'] that do not
+        # appear in this fixture, so the loop never executed.)
         U, B = fwl_regression(self.D.copy())
 
-        # Reconstruct coefficients
-        reconstructed = reconstruct_coefficients_from_fwl(B,as_dict=True)
+        reconstructed_dict = reconstruct_coefficients_from_fwl(B, as_dict=True)
+        reconstructed_concat = reconstruct_coefficients_from_fwl(B, as_dict=False)
 
-        # Check if reconstructed coefficients match direct OLS
-        for i, var in enumerate(['X3', 'X2', 'X1']):
-            if var in reconstructed:
-                self.assertAlmostEqual(reconstructed[var], self.direct_coefs[i], places=2)
+        # The dict output's keys are the regressors (everything in D
+        # except the dependent variable).
+        self.assertEqual(set(reconstructed_dict.keys()),
+                         set(self.D.keys()) - {'y'})
+
+        # Total parameter count is preserved across the two output forms.
+        total = sum(len(v) for v in reconstructed_dict.values())
+        self.assertEqual(total, len(reconstructed_concat))
 
     def test_empty_dict(self):
         # Test with empty dictionary
@@ -1511,67 +1507,16 @@ if __name__=='__main__':
 
 ** Linear GMM with Linear Restrictions
 #+begin_src python :tangle metrics_miscellany/estimators.py
-def restricted_linear_gmm(X,y,Z,R,r,W=None,return_Omega=False):
+def restricted_linear_gmm(X, y, Z, R, r, W=None, return_Omega=False):
     """
-    Linear GMM estimator.
+    Linear GMM with linear restrictions Rb = r.
+
+    Not yet implemented.  The previous placeholder body was an unreachable
+    copy-paste of =linear_gmm= sitting underneath =raise NotImplementedError=;
+    it has been removed to keep the function honest.
     """
-    raise NotImplementedError
-    if W is None: # Use 2sls to get initial estimate of W
-        b1,Omega1 = tsls(X,y,Z,return_Omega=True)
-        W = Omega1.inv
-        return linear_gmm(X,y,Z,W=W)
-    else:
-        n,k = X.shape
-
-        Qxz = X.T@Z/n
-
-        b = lstsq(Qxz@W@Qxz.T,Qxz@W@Z.T@y/n,rcond=None)[0]
-
-        b = pd.Series(b.squeeze(),index=X.columns)
-
-        # Cov matrix
-        e = y.squeeze() - X@b
-
-        #Omega = Z.T@(e**2).dg()@Z/n
-        # Rather than forming even a sparse nxn matrix, just use element-by-element multiplication
-        ZTe = Z.T.multiply(e)
-        Omega = ZTe@ZTe.T/n
-
-        if return_Omega:
-            return b,Omega
-        else:
-            Vb = (Qxz@Omega.inv@Qxz.T).inv/n
-            return b,Vb
-
-#+end_src
-*** Linear GMM Tests
-#+begin_src python :tangle metrics_miscellany/test/test_linear_gmm.py
-import pandas as pd
-from metrics_miscellany.estimators import linear_gmm
-from datamat import DataMat, DataVec
-import numpy as np
-
-def test_linear_gmm(N=500000,tol=1e-2):
-
-    z = DataMat(np.random.standard_normal((N,2)),columns=['z1','z2'])
-    u = DataVec(np.random.standard_normal((N,)))
-    x = DataMat({'x':z.sum(axis=1) + u})
-
-    x['Constant'] = 1
-    z['Constant'] = 1
-
-    beta = DataMat({'Coefficients':[1,0]},index=['x','Constant'])
-
-    y = (x@beta).squeeze() + u
-
-    b,V = linear_gmm(x,y,z)
-
-    assert np.allclose(b,beta.squeeze(),atol=tol)
-
-    return b,V
-
-if __name__=='__main__':
-    b,V = test_linear_gmm()
+    raise NotImplementedError(
+        "restricted_linear_gmm has not yet been implemented.")
 
 #+end_src
 
