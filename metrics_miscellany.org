@@ -1478,10 +1478,9 @@ def test_linear_gmm(N=500000,tol=1e-2):
 
     assert np.allclose(b,beta.squeeze(),atol=tol)
 
-    return b,V
 
 if __name__=='__main__':
-    b,V = test_linear_gmm()
+    test_linear_gmm()
 
 #+end_src
 
@@ -1680,24 +1679,100 @@ def kernel_regression(X,y,bw,kernel=gaussian):
 
     return mhat
 
-def kernel_regression_variance(X,y,bw,kernel=gaussian):
+def kernel_regression_variance(X, y, bw, kernel=gaussian):
     """
-    Use data (X,y) to estimate E((y-m(x))^2|x), using bandwidth bw.
-    """
-    # Construct leave-one-out residuals
-    K = gram(X,bw=bw,kernel=kernel)
-    Km = K - K.dg().dg()
+    Use data (X, y) to estimate E((y - m(x))^2 | x), using bandwidth bw.
 
-    e2 = (y - (K@y)/K.sum(axis=1))**2
-    Ksum = K.sum().sum()
+    Leave-one-out residuals are used to estimate the conditional
+    variance: each y_i is compared against the prediction from a
+    kernel regression that excludes observation i.
+
+    The previous version constructed =Km = K - K.dg().dg()= (the
+    Gram matrix with the diagonal zeroed out, i.e. the leave-one-out
+    weights) but then never used it -- the residuals were formed
+    from the inclusive K, so they systematically understated the
+    variance.  It also divided the kernel-weighted average at the
+    query point =x= by =K.sum().sum()= (the *training-time* total
+    weight, fixed at function-definition time and independent of
+    =x=) rather than by the local sum at =x=.  Both are fixed.
+    """
+    K = gram(X, bw=bw, kernel=kernel)
+
+    # leave-one-out weights: zero on the diagonal.  Use NumPy diag
+    # explicitly so the function works for any matrix-like K (a
+    # DataMat, a pandas DataFrame, or even a NumPy array); the
+    # previous =K.dg().dg()= only succeeded for DataMat.
+    K_vals = np.asarray(K)
+    Km_vals = K_vals - np.diag(np.diag(K_vals))
+    if isinstance(K, pd.DataFrame):
+        Km = pd.DataFrame(Km_vals, index=K.index, columns=K.columns)
+    else:
+        Km = Km_vals
+
+    e2 = (y - (Km @ y) / Km.sum(axis=1)) ** 2
 
     def sigmahat(x):
-
-        S = kernel((X-x)/bw) # "Smooths"
-
-        return (S**2).dot(e2)/Ksum
+        S = kernel((X - x) / bw)  # "Smooths"
+        return (S ** 2).dot(e2) / (S ** 2).sum()
 
     return sigmahat
+#+end_src
+
+*** Tests for kernel regression and its variance
+#+begin_src python :tangle metrics_miscellany/test/test_kernel_methods.py
+import numpy as np
+import pandas as pd
+import pytest
+
+from metrics_miscellany import kernel_methods as km
+
+
+@pytest.fixture
+def smooth_data():
+    rng = np.random.default_rng(0)
+    n = 200
+    x = pd.Series(np.linspace(-3, 3, n), name='x')
+    sigma = 0.1
+    y = pd.Series(np.sin(x) + sigma * rng.standard_normal(n), name='y')
+    return x, y, sigma
+
+
+def test_kernel_regression_recovers_smooth_target(smooth_data):
+    """Kernel regression on y = sin(x) + small noise should be close
+    to sin at interior points for a moderate bandwidth."""
+    x, y, _ = smooth_data
+    mhat = km.kernel_regression(x, y, bw=0.3)
+    for x0 in [-2.0, -1.0, 0.0, 1.0, 2.0]:
+        assert abs(float(mhat(x0)) - np.sin(x0)) < 0.1
+
+
+def test_kernel_regression_variance_recovers_homoskedastic_noise(smooth_data):
+    """E[(y - m(x))^2 | x] should track the constant noise variance
+    sigma^2 at interior points for a moderate bandwidth.  The
+    previous implementation -- which used the inclusive K for the
+    residuals and a constant denominator -- gave estimates that
+    looked like the *training-set mean residual* scaled by an
+    irrelevant constant, which is what this test catches."""
+    x, y, sigma = smooth_data
+    sigmahat = km.kernel_regression_variance(x, y, bw=0.3)
+    for x0 in [-2.0, -1.0, 0.0, 1.0, 2.0]:
+        est = float(sigmahat(x0))
+        # Match sigma^2 to within a factor of ~3 -- generous to allow
+        # for bias from kernel smoothing.
+        assert sigma ** 2 / 3 < est < 3 * sigma ** 2, (
+            f"sigmahat({x0}) = {est:.4f}, expected ~{sigma**2:.4f}")
+
+
+if __name__ == '__main__':
+    rng = np.random.default_rng(0)
+    n = 200
+    x = pd.Series(np.linspace(-3, 3, n), name='x')
+    sigma = 0.1
+    y = pd.Series(np.sin(x) + sigma * rng.standard_normal(n), name='y')
+    test_kernel_regression_recovers_smooth_target((x, y, sigma))
+    test_kernel_regression_variance_recovers_homoskedastic_noise(
+        (x, y, sigma))
+
 #+end_src
 
 
@@ -1705,19 +1780,19 @@ def kernel_regression_variance(X,y,bw,kernel=gaussian):
 ** Procedural interface for GMM estimator.
 #+begin_src python :tangle metrics_miscellany/gmm.py
 import numpy as np
+import pandas as pd
+from scipy.optimize import minimize_scalar, approx_fprime
+from scipy.optimize import minimize as scipy_min
+
 from . import utils
-from . import utils
+
 matrix_product = utils.matrix_product
 diag = utils.diag
 inv = utils.inv
 
-from scipy.optimize import minimize_scalar, minimize, approx_fprime
-from scipy.optimize import minimize as scipy_min
-import pandas as pd
-
-from IPython.core.debugger import Pdb
-
-__version__ = "0.3.1"
+# IPython.core.debugger.Pdb used to be imported here for ad-hoc
+# breakpoint() use; load it lazily inside whichever routine needs it
+# rather than paying the IPython import cost at every gmm.py import.
 
 ######################################################
 # Beginning of procedural version of gmm routines
@@ -1835,6 +1910,12 @@ def Vb(b):
     return utils.inv(Q.T@utils.inv(W)@Q)
 
 def print_version():
+    """CLI entrypoint registered in pyproject.toml as
+    =metrics-miscellany-version=.  Reads the installed package
+    version via importlib.metadata so the string stays in sync with
+    the wheel rather than the long-stale =__version__ = "0.3.1"= that
+    used to live at module top."""
+    from metrics_miscellany import __version__
     print(__version__)
 
 # End of procedural version of gmm routines
@@ -1940,14 +2021,9 @@ def test_gmm(N=10000):
 
     assert (b-beta)**2 < 0.01, f"Estimate {b} outside tolerance."
 
-    print(b,J)
-    print(gmm.Vb(b))
-
-    return J
 
 if __name__ == '__main__':
-    J = []
-    for i in range(1000): J.append(test_gmm())
+    test_gmm()
 
 #+end_src
 ** GMM Class
@@ -2136,9 +2212,18 @@ def skillings_mack(df,bootstrap=False):
 
     Algorithm from https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2761045/
     """
-    def construct_statistic(R,kay):
+    def construct_statistic(R, kay, X):
         """
-        Once we have ranks, construct SM statistic
+        Once we have ranks R (and the original observation matrix X
+        for the missingness pattern), construct the SM statistic.
+
+        =X= is passed in explicitly rather than closed over: in the
+        previous version =construct_statistic= reached back to a
+        name =X= that was bound in the outer scope only *after* the
+        function was defined.  That worked by coincidence -- the
+        function is only called once =X= exists -- but stashed a
+        latent closure bug that broke as soon as you rearranged the
+        body.
         """
         # Fill missing ranks with (k_i+1)/2
         R = R.where(~np.isnan(R),(kay+1)/2,axis=1)
@@ -2172,7 +2257,7 @@ def skillings_mack(df,bootstrap=False):
 
     R = X.rank(axis=0)
 
-    SM = construct_statistic(R,kay)
+    SM = construct_statistic(R, kay, X)
 
     if not bootstrap:
         p = 1-stats.distributions.chi2.cdf(SM,df=n-1)
@@ -2191,7 +2276,7 @@ def skillings_mack(df,bootstrap=False):
             scrambled = pd.DataFrame(np.apply_along_axis(np.random.permutation,axis=0,arr=R.values),
                                      index=R.index,columns=R.columns)
            
-            sms.append(construct_statistic(scrambled,kay))
+            sms.append(construct_statistic(scrambled, kay, X))
             SE = np.std(sms)
             its += 1
         p = np.mean(sms>SM)
