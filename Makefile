@@ -23,7 +23,7 @@ else
 PYTEST_CMD = $(POETRY) run pytest $(PYTEST_FLAGS)
 endif
 
-.PHONY: tangle lint black mypy test quick-check slow-tests check build publish devinstall use-local-datamat clean all release
+.PHONY: tangle lint black mypy test quick-check slow-tests coverage check build publish devinstall use-local-datamat clean all release
 
 all: tangle quick-check build
 
@@ -54,6 +54,12 @@ quick-check: tangle
 slow-tests:
 	$(POETRY) run pytest -m slow
 
+# Runs the full suite under coverage.  Settings live in pyproject.toml's
+# [tool.coverage.*] sections; this target adds an HTML report under
+# htmlcov/ for local browsing.
+coverage: tangle
+	$(POETRY) run pytest --cov --cov-report=term-missing --cov-report=html
+
 check: tangle lint black mypy
 	$(POETRY) run pytest
 
@@ -82,3 +88,5 @@ clean:
 	-rm -f dist/*.tar.gz dist/*.exe dist/*.whl
 	-rm -f CHANGES.txt
 	-rm -f .tangle
+	-rm -f .coverage
+	-rm -rf htmlcov coverage.xml

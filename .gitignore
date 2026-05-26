@@ -14,3 +14,7 @@ metrics_miscellany/*
 /.test
 /Metrics_Miscellany.egg-info/
 /.venv/
+/.coverage
+/coverage.xml
+/htmlcov/
+/.pytest_cache/

@@ -23,6 +23,7 @@ ruff = "^0.5"
 black = "^24.4"
 mypy = "^1.10"
 statsmodels = "^0.14"
+pytest-cov = "^7.1.0"
 
 [tool.poetry.scripts]
 metrics-miscellany-version = "metrics_miscellany.gmm:print_version"
@@ -61,6 +62,26 @@ disable_error_code = ["no-redef"]
 [[tool.mypy.overrides]]
 module = "metrics_miscellany.test.*"
 ignore_errors = true
+
+[tool.coverage.run]
+branch = true
+source = ["metrics_miscellany"]
+# Tests get high coverage trivially because pytest imports them; exclude
+# them so the headline number reflects production-code coverage.
+omit = ["metrics_miscellany/test/*"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+precision = 1
+# Treat "always-false" defensive blocks and protocol __repr__/__main__
+# blocks as exempt; saves us from carrying coverage pragmas inline.
+exclude_also = [
+  "pragma: no cover",
+  "raise NotImplementedError",
+  "if __name__ == .__main__.:",
+  "if TYPE_CHECKING:",
+]
 
 [build-system]
 requires = ["poetry-core>=1.7.0"]
