@@ -134,32 +134,64 @@ def self_inner(X,min_obs=None):
 
     return C + N*np.outer(xbar,xbar)
 
-def kron(A,B,sparse=False):
+def _kron_axis(left, right):
+    """Build the row or column labels of a Kronecker product.
+
+    Handles flat Index x flat Index, MultiIndex x MultiIndex, and the
+    mixed cases uniformly by promoting flat-Index entries to 1-tuples
+    before taking the cartesian product.  Avoids ``(*i, *j)``, which
+    silently unpacks string labels character-by-character and crashes
+    on numeric labels.
+    """
+    def as_tuples(idx):
+        if isinstance(idx, pd.MultiIndex):
+            return list(idx)
+        return [(v,) for v in idx]
+
+    tuples = [(*i, *j) for i in as_tuples(left) for j in as_tuples(right)]
+    names = list(left.names) + list(right.names)
+    return pd.MultiIndex.from_tuples(tuples, names=names)
+
+
+def kron(A, B, sparse=False):
+    """Kronecker product A (x) B that preserves pandas axis labels.
+
+    Each operand may be a DataFrame, a Series (treated as a column
+    vector), or a NumPy array (1-d arrays are treated as column
+    vectors).  The result's row index is the cartesian product
+    A.index x B.index (with concatenated level names), and likewise
+    for the columns; flat Indices are promoted to 1-level MultiIndex
+    entries so the bookkeeping is uniform.
+
+    If =sparse= is True the product is computed via
+    =scipy.sparse.kron= and returned as a sparse DataFrame.
+    """
+    def to_frame(M):
+        if isinstance(M, pd.DataFrame):
+            return M
+        if isinstance(M, pd.Series):
+            return M.to_frame()
+        arr = np.asarray(M)
+        if arr.ndim == 1:
+            arr = arr.reshape((-1, 1))
+        elif arr.ndim != 2:
+            raise ValueError(
+                f"kron operands must be 1-d or 2-d; got ndim={arr.ndim}.")
+        return pd.DataFrame(arr)
+
+    Af = to_frame(A)
+    Bf = to_frame(B)
+
+    index = _kron_axis(Af.index, Bf.index)
+    columns = _kron_axis(Af.columns, Bf.columns)
+
     if sparse:
-        from scipy.sparse import kron
+        from scipy.sparse import kron as sp_kron
+        k = sp_kron(Af.values, Bf.values)
+        return pd.DataFrame.sparse.from_spmatrix(k, index=index, columns=columns)
 
-    if isinstance(A,pd.DataFrame):
-        a = A.values
-        if isinstance(B,pd.DataFrame):
-            columns = pd.MultiIndex.from_tuples([(*i,*j) for i in A.columns for j in B.columns],                                               names=A.columns.names+B.columns.names)
-            b = B.values
-        else:
-            columns = A.columns.remove_unused_levels()
-            b = B.values.reshape((-1,1))
-    elif isinstance(B,pd.DataFrame):
-        columns = B.columns.remove_unused_levels()
-        a = A.values.reshape((-1,1))
-        b = B.values
-
-    index = pd.MultiIndex.from_tuples([(*i,*j) for i in A.index for j in B.index],
-                                      names=A.index.names+B.index.names)
-
-    if sparse:
-        a = kron(a,b)
-        return pd.DataFrame.sparse.from_spmatrix(a,columns=columns,index=index)
-    else:
-        a = np.kron(a,b)
-        return pd.DataFrame(a,columns=columns,index=index)
+    return pd.DataFrame(np.kron(Af.values, Bf.values),
+                        index=index, columns=columns)
 
 #+end_src
 *** Binary Operation Tests
@@ -239,6 +271,56 @@ def test_matmul_matvec(datamat_vector, pandas_vector):
     for A, b in [datamat_vector, pandas_vector]:
         C = A @ b
         assert isinstance(C, type(b))
+
+
+def test_kron_flat_index_string_labels():
+    """Two flat-Index DataFrames with multi-character string labels must
+    round-trip through kron without character-unpacking the labels."""
+    from metrics_miscellany.utils import kron
+    A = pd.DataFrame([[1, 2], [3, 4]],
+                     index=pd.Index(['alpha', 'beta'], name='l'),
+                     columns=pd.Index(['xx', 'yy'], name='c'))
+    B = pd.DataFrame([[5, 6], [7, 8]],
+                     index=pd.Index(['gamma', 'delta'], name='k'),
+                     columns=pd.Index(['pp', 'qq'], name='d'))
+    K = kron(A, B)
+    assert K.shape == (4, 4)
+    assert list(K.index.names) == ['l', 'k']
+    assert list(K.columns.names) == ['c', 'd']
+    np.testing.assert_array_equal(K.values, np.kron(A.values, B.values))
+    assert ('alpha', 'gamma') in K.index
+    assert ('xx', 'pp') in K.columns
+
+
+def test_kron_mixed_multi_and_flat():
+    """Mixing MultiIndex and flat Index should produce a properly named
+    cartesian-product MultiIndex on the output."""
+    from metrics_miscellany.utils import kron
+    A = pd.DataFrame(np.arange(4).reshape(2, 2),
+                     index=pd.MultiIndex.from_tuples([(0, 'a'), (0, 'b')],
+                                                    names=['i', 'j']),
+                     columns=pd.Index(['c0', 'c1'], name='c'))
+    B = pd.DataFrame(np.arange(6).reshape(3, 2),
+                     index=pd.Index(range(3), name='k'),
+                     columns=pd.MultiIndex.from_tuples([('x', 1), ('x', 2)],
+                                                      names=['s', 't']))
+    K = kron(A, B)
+    assert list(K.index.names) == ['i', 'j', 'k']
+    assert list(K.columns.names) == ['c', 's', 't']
+    assert K.shape == (6, 4)
+    np.testing.assert_array_equal(K.values, np.kron(A.values, B.values))
+
+
+def test_kron_with_ndarray_operand():
+    """kron should accept a DataFrame paired with a NumPy ndarray."""
+    from metrics_miscellany.utils import kron
+    A = pd.DataFrame([[1, 2], [3, 4]],
+                     index=['r0', 'r1'], columns=['c0', 'c1'])
+    B = np.array([[5], [6]])
+    K = kron(A, B)
+    assert K.shape == (4, 2)
+    np.testing.assert_array_equal(K.values, np.kron(A.values, B))
+
 
 if __name__=='__main__':
     pytest.main()
@@ -528,13 +610,26 @@ def use_indices(df,idxnames):
     except InvalidIndexError:
         return df
 
-def drop_vestigial_levels(idx,axis=0,both=False,multiindex=True):
+def drop_vestigial_levels(idx,axis=0,both=False,multiindex=False):
     """
     Drop levels that don't vary across the index.
+
+    Accepts a plain Index, a MultiIndex, or a Series/DataFrame; in the
+    latter case the index (or columns, when =axis=1=) is collapsed and
+    the original container is returned.
+
+    When =multiindex= is True the result is always returned as a
+    MultiIndex; if all but one level survived, the single-level result
+    is wrapped via =MultiIndex.from_arrays=.  The default is False (the
+    previous default tried to re-parse pipe-separated string labels,
+    which crashed on numeric indices and is inappropriate as a generic
+    helper -- callers needing that behaviour should do it explicitly).
 
     >>> idx = pd.MultiIndex.from_tuples([(1,1),(1,2)],names=['i','j'])
     >>> drop_vestigial_levels(idx)
     Index([1, 2], dtype='int64', name='j')
+    >>> drop_vestigial_levels(idx, multiindex=True).names
+    FrozenList(['j'])
     """
     if both:
         return drop_vestigial_levels(drop_vestigial_levels(idx,axis=1))
@@ -549,21 +644,22 @@ def drop_vestigial_levels(idx,axis=0,both=False,multiindex=True):
     else:
         HumptyDumpty = False
 
-    try:
+    if isinstance(idx, pd.MultiIndex):
         l = 0
         L = len(idx.levels)
-        while l < L:
-            if len(set(idx.codes[l]))<=1:
+        while l < L and isinstance(idx, pd.MultiIndex):
+            # A level is "vestigial" if every code points at the same value
+            # (or no value at all -- code == -1).
+            if len(set(idx.codes[l])) <= 1:
                 idx = idx.droplevel(l)
                 L -= 1
             else:
                 l += 1
-                if l>=L: break
-    except AttributeError:
-        pass
 
-    if multiindex and not isinstance(idx,pd.MultiIndex): # Return a multiindex, not an Index
-        idx = pd.MultiIndex.from_tuples(idx.str.split('|').tolist(),names=[idx.name])
+    if multiindex and not isinstance(idx, pd.MultiIndex):
+        # Wrap the surviving plain Index as a one-level MultiIndex so that
+        # downstream code can still reach for .levels / .names / .codes.
+        idx = pd.MultiIndex.from_arrays([idx], names=[idx.name])
 
     if HumptyDumpty:
         df.index = idx
@@ -1249,7 +1345,9 @@ def linear_gmm(X,y,Z,W=None,return_Omega=False):
     if W is None: # Use 2sls to get initial estimate of W
         b1,Omega1 = tsls(X,y,Z,return_Omega=True)
         W = Omega1.inv
-        return linear_gmm(X,y,Z,W=W)
+        # Forward return_Omega through the recursive call so callers asking
+        # for Omega on a default-W invocation actually receive it.
+        return linear_gmm(X,y,Z,W=W,return_Omega=return_Omega)
     else:
         n,k = X.shape
 
