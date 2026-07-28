@@ -18,3 +18,6 @@ metrics_miscellany/*
 /coverage.xml
 /htmlcov/
 /.pytest_cache/
+
+# SuCoder per-mirror session state
+.coder-session/
