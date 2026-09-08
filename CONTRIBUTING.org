@@ -10,6 +10,9 @@ It complements [[file:README.org][README.org]], [[file:docs/index.org][docs/inde
 - Primary development happens in =metrics_miscellany.org=, which tangles into the Python
   modules under =metrics_miscellany/=.  Edit the Org file first and re-run
   =./tangle.sh metrics_miscellany.org= when you are ready to regenerate code.
+- The tangled =.py= files are committed, so that =pip install git+= yields an importable
+  package.  Commit the regenerated files together with the Org change; =make check-tangle=
+  fails if the two drift apart.
 - The package depends on the external =datamat= project; do not reintroduce a vendored
   copy inside this repository.
 

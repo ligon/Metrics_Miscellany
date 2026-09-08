@@ -59,13 +59,25 @@ execute repeatably.
   (invoked indirectly by every Make target except =clean=).  Never
   hand-edit a tangled .py file -- the change will be lost on the next
   tangle.
-- A handful of test files (=test_binary_ops.py=, =test_factor_regression.py=,
-  =test_ols_vs_statsmodels.py=) are tracked in git despite the
-  =metrics_miscellany/*= line in =.gitignore=.  When the canonical
-  org block changes, refresh them with =git add -f path/to/file.py=
-  so the committed tangle output stays in sync with the source.  The
-  unchecked-in remainder (=test/test_*.py= produced by tangling) is
-  regenerated locally and should not be committed.
+- The tangled .py files ARE committed (GH #4).  The blanket
+  =metrics_miscellany/*= line has been removed from =.gitignore=, so
+  =git add -f= is no longer needed for any of them and a fresh tangle
+  shows up in =git status= like any other edit.  After changing an org
+  source block, re-run =./tangle.sh metrics_miscellany.org= and commit
+  the regenerated .py alongside the org change -- otherwise
+  =pip install git+https://github.com/ligon/Metrics_Miscellany= ships an
+  =__init__.py= importing modules that are not in the wheel, which is the
+  bug #4 reported.
+- =make check-tangle= is the guard: it tangles into a scratch directory
+  and fails if any committed .py differs from what the org produces, or
+  is missing entirely.  =make check= and =make quick-check= run it before
+  =tangle= (afterwards the comparison would be vacuous).  Files under
+  =metrics_miscellany/= that the org does NOT tangle -- =__init__.py=,
+  =test/README=, =test/test_ols_vs_statsmodels.py= -- are hand-written and
+  are ignored by the check.
+- =test_maunchy.py= is not tangled: its subtree is marked =COMMENT=, so
+  org-babel-tangle skips it (51 of the 52 =:tangle= blocks produce output).
+  Un-COMMENT the subtree if you want that test back.
 - Deleting a source block from the .org file does NOT delete the
   corresponding tangled .py.  Stale outputs persist on disk and
   pytest may still discover them.  Always =rm= the corresponding

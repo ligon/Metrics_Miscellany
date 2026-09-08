@@ -23,8 +23,9 @@ Use this checklist when preparing a tagged release of *Metrics_Miscellany*.
 make quick-check
 make slow-tests   # only if slow tests exist / were modified
 #+end_src
-- If tangles changed, re-run =./tangle.sh metrics_miscellany.org= and confirm =git status=
-  is clean afterwards.
+- If tangles changed, re-run =./tangle.sh metrics_miscellany.org=, commit the regenerated
+  =.py= files, and confirm =git status= is clean afterwards.  =make check-tangle= verifies
+  the committed output still matches the org source.
 
 * Build Artifacts
 #+begin_src bash

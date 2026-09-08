@@ -6,3 +6,17 @@ Key ideas that motivate this collection:
    3. Adopt semantics similar to the mathematical description of the estimation or inference problem.
 
 See [[file:docs/index.org][docs/index.org]] for contributor guides, release checklists, and automation notes.
+
+* Installation
+=Metrics_Miscellany= depends on [[https://github.com/ligon/DataMat][=datamat=]], which is published on GitHub rather than
+PyPI, so pip cannot resolve it on its own; install both in one go:
+
+#+begin_src bash
+pip install git+https://github.com/ligon/DataMat git+https://github.com/ligon/Metrics_Miscellany
+#+end_src
+
+A =git+= install works because the Python modules tangled from =metrics_miscellany.org=
+are committed to the repository.  A PEP 517 build does not run =./tangle.sh=, so without
+them the installed package would import modules that are not there.  Edit the Org file,
+never the =.py= files; =make check-tangle= tangles into a scratch directory and fails if
+the committed output has drifted from the source.
