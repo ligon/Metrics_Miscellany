@@ -1,3 +1,5 @@
+#+PROPERTY: header-args :mkdirp yes
+
 * DataFrame Utils
 Here we provide various utils meant to operate on pandas DataFrames and Series.  Note that because datamat classes inherit from pandas these functions can be used with the datamat classes as well.
 ** Unary Matrix Operators
