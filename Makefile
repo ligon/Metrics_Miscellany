@@ -25,7 +25,7 @@ endif
 
 .PHONY: tangle check-tangle lint black mypy test quick-check slow-tests coverage check build publish devinstall use-local-datamat clean all release
 
-all: tangle quick-check build
+all: check-tangle tangle quick-check build
 
 tangle: .tangle
 
