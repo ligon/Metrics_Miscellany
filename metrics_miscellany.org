@@ -26,8 +26,12 @@ def pinv(A):
     return pd.DataFrame(B,columns=A.index,index=A.columns)
 
 def leverage(X):
-    """
-    Leverage of matrix X; i.e., diagonal of projection matrix.
+    """Leverage of matrix X; i.e., diagonal of the projection matrix.
+
+    Uses the pseudo-inverse, so this is the diagonal of the projection
+    onto col(X) whatever the rank of X: the leverages sum to rank(X),
+    not to X.shape[1].  See the Leverage section for why the QR
+    shortcut is not used here.
     """
     return (X*pinv(X).T).sum(axis=1)
 
@@ -348,6 +352,8 @@ if __name__=='__main__':
 
 ** Matrix Decompositions
 #+begin_src python :tangle metrics_miscellany/utils.py
+import warnings
+
 def heteropca(C,r=1,max_its=50,tol=1e-3,verbose=False):
     """Estimate r factors and factor weights of covariance matrix C."""
     from scipy.spatial import procrustes
@@ -648,6 +654,7 @@ if __name__=='__main__':
 ** Index utilities
 #+begin_src python :tangle metrics_miscellany/utils.py
 import pandas as pd
+from pandas.errors import InvalidIndexError
 
 def use_indices(df,idxnames):
     if len(set(idxnames).intersection(df.index.names))==0:
@@ -724,6 +731,7 @@ def drop_vestigial_levels(idx,axis=0,both=False,multiindex=False):
 *** Test of =use_indices=
 #+begin_src python :tangle metrics_miscellany/test/test_use_indices.py
 import pandas as pd
+from pandas.errors import InvalidIndexError
 from metrics_miscellany.utils import use_indices
 import numpy as np
 
@@ -737,8 +745,29 @@ def test_use_indices():
 
     assert np.all(use_indices(foo,['i']).index==idx)
 
+def test_use_indices_invalid_index_falls_back():
+    """The InvalidIndexError handler must be reachable.
+
+    It named a class that was never imported, so *any* exception raised
+    in the try body surfaced as `NameError: name 'InvalidIndexError' is
+    not defined` instead of the intended fallback.
+    """
+    class Raising(pd.DataFrame):
+        @property
+        def _constructor(self):
+            return Raising
+
+        def reset_index(self,*args,**kwargs):
+            raise InvalidIndexError("forced")
+
+    idx = pd.MultiIndex.from_tuples([(i,) for i in range(3)],names=['i'])
+    df = Raising({'cat':list('abc')},index=idx)
+
+    assert use_indices(df,['i']) is df
+
 if __name__=='__main__':
     test_use_indices()
+    test_use_indices_invalid_index_falls_back()
 
 
 #+end_src
@@ -1084,6 +1113,17 @@ def test_factor_analysis_unfinished_branches_raise():
         estimators.factor_analysis(X, svd_method='lapack')
     with pytest.raises(NotImplementedError, match="randomized"):
         estimators.factor_analysis(X, svd_method='randomized')
+
+
+def test_heteropca_warns_instead_of_raising_on_max_its(square_psd):
+    """Hitting max_its must emit a warning.
+
+    `warnings` was never imported in the tangled utils.py, so this
+    branch raised NameError on exactly the non-convergence path the
+    warning exists to report.
+    """
+    with pytest.warns(UserWarning, match="Exceeded maximum iterations"):
+        utils.heteropca(square_psd, r=1, max_its=1)
 
 
 if __name__ == '__main__':
@@ -3306,18 +3346,85 @@ def qr(X):
 #+end_src
 
 *** Leverage
-Now, use the fact that the leverage of different observations in $X$
-are the sums of squares of rows of $Q$ in the $QR$ decomposition
-#+begin_src python :tangle metrics_miscellany/utils.py
+Leverage is defined once, under [[*Unary Matrix Operators][Unary Matrix Operators]], as the diagonal of
+$XX^+$.
 
-def leverage(X):
+It is tempting to compute it instead as the row sums of squares of $Q$
+from the $QR$ decomposition above, since $QQ' = X(X'X)^{-1}X'$ whenever
+$X$ has full column rank.  That identity fails when $X$ does not: =np.linalg.qr=
+still returns $k$ orthonormal columns, but they no longer span
+$\mathrm{col}(X)$, so $QQ'$ is not the projection and the leverages sum to
+$k$ rather than to $\mathrm{rank}(X)$.  Since the leverages feed the HC2 and
+HC3 residual corrections, where a wrong $h_i$ silently distorts a standard
+error, the pseudo-inverse form is used throughout.
+
+#+begin_src python :tangle metrics_miscellany/test/test_leverage.py
+import numpy as np
+import pandas as pd
+import pytest
+
+from metrics_miscellany.utils import leverage
+
+
+def _projection_diagonal(X):
+    """diag(X X^+), computed independently of utils.leverage."""
+    Xv = np.asarray(X, dtype=float)
+    return np.diag(Xv @ np.linalg.pinv(Xv))
+
+
+def _frame(a):
+    a = np.asarray(a, dtype=float)
+    return pd.DataFrame(a,
+                        index=[f"r{i}" for i in range(a.shape[0])],
+                        columns=[f"c{j}" for j in range(a.shape[1])])
+
+
+def test_leverage_matches_projection_diagonal():
+    X = _frame(np.random.default_rng(0).standard_normal((8, 3)))
+    assert np.allclose(leverage(X), _projection_diagonal(X))
+
+
+def test_leverage_sums_to_rank_not_column_count():
+    """Rank-deficient X: sum(h) is rank(X), not X.shape[1].
+
+    The QR form -- (Q**2).sum(axis=1) -- returns k here, because
+    np.linalg.qr still yields k orthonormal columns when X is rank
+    deficient even though they no longer span col(X).
     """
-    Return leverage of observations in X (the diagonals of the hat matrix).
-    """
+    A = np.random.default_rng(1).standard_normal((8, 3))
+    A[:, 2] = A[:, 0]                      # rank 2, three columns
+    X = _frame(A)
 
-    Q = qr(X)[0]
+    assert np.linalg.matrix_rank(X) == 2
+    assert np.isclose(float(np.sum(leverage(X))), 2.0)
+    assert np.allclose(leverage(X), _projection_diagonal(X))
 
-    return (Q**2).sum(axis=1)
+
+def test_leverage_accepts_wide_X():
+    """n < k must give an answer, not an assertion."""
+    X = _frame(np.random.default_rng(2).standard_normal((3, 5)))
+    h = leverage(X)
+    assert np.allclose(h, 1.0)             # rows of a wide X are fully levered
+    assert np.allclose(h, _projection_diagonal(X))
+
+
+def test_leverage_is_bounded_and_labelled():
+    X = _frame(np.random.default_rng(3).standard_normal((10, 4)))
+    h = leverage(X)
+    assert list(h.index) == list(X.index)
+    assert ((h >= -1e-12) & (h <= 1 + 1e-12)).all()
+
+
+@pytest.mark.parametrize("n,k", [(6, 2), (12, 5), (4, 4)])
+def test_leverage_sums_to_rank_full_rank_cases(n, k):
+    X = _frame(np.random.default_rng(n * k).standard_normal((n, k)))
+    assert np.isclose(float(np.sum(leverage(X))), float(np.linalg.matrix_rank(X)))
+
+
+if __name__ == '__main__':
+    test_leverage_matches_projection_diagonal()
+    test_leverage_sums_to_rank_not_column_count()
+    print("smoke OK")
 #+end_src
 
 *** Hat factory
@@ -3505,4 +3612,68 @@ if __name__ == '__main__':
     test_permutation_actually_permutes()
     test_permutation_full_axis()
 
+#+end_src
+
+* Tangling hygiene
+Two source blocks with the same =:tangle= target are concatenated silently,
+so the same top-level name can end up defined twice in one module with the
+later definition quietly winning.  That is how =utils.leverage= came to have
+a pseudo-inverse definition that nothing could reach: the section below it
+redefined the name using the $QR$ decomposition, and the two disagreed
+whenever $X$ was rank deficient.
+
+Ruff's =F811= would catch this, but it is disabled for the tangled modules
+because each org section deliberately re-imports =numpy= and =pandas= (see
+=[tool.ruff.lint.per-file-ignores]= in =pyproject.toml=).  This test covers
+the case that actually matters -- a duplicated /definition/ -- structurally,
+without objecting to a repeated import.
+
+#+begin_src python :tangle metrics_miscellany/test/test_no_duplicate_definitions.py
+import ast
+import pathlib
+from collections import Counter
+
+import pytest
+
+PACKAGE = pathlib.Path(__file__).resolve().parent.parent
+
+
+def _modules():
+    return sorted(
+        p for p in PACKAGE.rglob("*.py")
+        if "__pycache__" not in p.parts
+    )
+
+
+def _top_level_definitions(path):
+    tree = ast.parse(path.read_text(), filename=str(path))
+    return [
+        node.name for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+    ]
+
+
+@pytest.mark.parametrize("path", _modules(), ids=lambda p: p.name)
+def test_no_duplicate_top_level_definitions(path):
+    """No module may define the same top-level name twice.
+
+    Concatenated org blocks make this easy to do by accident, and the
+    shadowed definition fails silently rather than loudly.
+    """
+    duplicates = {
+        name: n for name, n in Counter(_top_level_definitions(path)).items()
+        if n > 1
+    }
+    assert not duplicates, (
+        f"{path.relative_to(PACKAGE.parent)} defines "
+        + ", ".join(f"{name!r} {n} times" for name, n in sorted(duplicates.items()))
+        + ".  Two org blocks tangling to this file define the same name; "
+        "the later one wins and the earlier is dead code."
+    )
+
+
+if __name__ == '__main__':
+    for p in _modules():
+        test_no_duplicate_top_level_definitions(p)
+    print("smoke OK")
 #+end_src

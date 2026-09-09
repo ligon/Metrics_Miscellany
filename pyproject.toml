@@ -48,6 +48,19 @@ extend-exclude = ["build", "dist", "Metrics_Miscellany.egg-info"]
 select = ["E", "F", "I", "B", "UP"]
 ignore = ["E501"]
 
+[tool.ruff.lint.per-file-ignores]
+# Everything under metrics_miscellany/ is tangled from
+# metrics_miscellany.org, where each section re-imports numpy/pandas so its
+# source block stays independently evaluable in the buffer.  Concatenating
+# those blocks into one module necessarily produces repeated and
+# mid-file imports; that is a property of the literate source, not a defect.
+#   I001  unsorted-imports
+#   E402  module-import-not-at-top-of-file
+#   F811  redefinition of an unused name (the repeated imports)
+# F811 would otherwise also flag a genuinely duplicated *definition*, so
+# test_no_duplicate_definitions.py guards that case structurally instead.
+"metrics_miscellany/**/*.py" = ["I001", "E402", "F811"]
+
 [tool.ruff.lint.isort]
 known-third-party = ["datamat", "numpy", "pandas", "scipy"]
 
