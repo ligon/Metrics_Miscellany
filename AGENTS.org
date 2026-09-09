@@ -81,7 +81,9 @@ execute repeatably.
 - Deleting a source block from the .org file does NOT delete the
   corresponding tangled .py.  Stale outputs persist on disk and
   pytest may still discover them.  Always =rm= the corresponding
-  file after deleting an org block.
+  file after deleting an org block.  =make check-tangle= now fails on
+  any such orphan that is *tracked* ("ORPHAN in repo"); an untracked
+  one is still invisible to it, so the manual =rm= is still the rule.
 - Two =#+begin_src python :tangle path/to/same_file.py= blocks targeting
   the same path are silently concatenated.  Grep the org file
   (=grep ':tangle path/to/file.py' metrics_miscellany.org=) before

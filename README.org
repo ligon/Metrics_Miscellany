@@ -8,8 +8,13 @@ Key ideas that motivate this collection:
 See [[file:docs/index.org][docs/index.org]] for contributor guides, release checklists, and automation notes.
 
 * Installation
-=Metrics_Miscellany= depends on [[https://github.com/ligon/DataMat][=datamat=]], which is published on GitHub rather than
-PyPI, so pip cannot resolve it on its own; install both in one go:
+#+begin_src bash
+pip install git+https://github.com/ligon/Metrics_Miscellany
+#+end_src
+
+The [[https://github.com/ligon/DataMat][=datamat=]] dependency resolves from PyPI, so nothing further is needed.  To
+track DataMat's development head rather than its released version, name it first
+so pip prefers the checkout:
 
 #+begin_src bash
 pip install git+https://github.com/ligon/DataMat git+https://github.com/ligon/Metrics_Miscellany

@@ -1,6 +1,12 @@
 POETRY = poetry
 ORG_INPUTS = metrics_miscellany.org
 
+# Files under metrics_miscellany/ that are NOT tangled from $(ORG_INPUTS).
+# check-tangle uses this to tell a hand-written file from a stale tangle
+# output whose org block has been deleted.
+HANDWRITTEN_PY = metrics_miscellany/__init__.py \
+                 metrics_miscellany/test/test_ols_vs_statsmodels.py
+
 FILES ?=
 
 ifeq ($(strip $(FILES)),)
@@ -22,6 +28,12 @@ PYTEST_CMD = $(POETRY) run pytest $(PYTEST_TARGET)
 else
 PYTEST_CMD = $(POETRY) run pytest $(PYTEST_FLAGS)
 endif
+
+# check-tangle compares the working tree against a scratch tangle, and
+# `tangle` rewrites that working tree.  Under `make -j` they would race,
+# making the comparison vacuous.  Prerequisites are not ordered in parallel
+# mode, so serialise the whole Makefile.
+.NOTPARALLEL:
 
 .PHONY: tangle check-tangle lint black mypy test quick-check slow-tests coverage check build publish devinstall use-local-datamat clean all release
 
@@ -51,10 +63,11 @@ check-tangle:
 	cp $(ORG_INPUTS) "$$tmp"/; \
 	sed -n 's/.*:tangle \([^ ]*\).*/\1/p' $(ORG_INPUTS) | xargs -n1 dirname \
 	  | sort -u | while read -r d; do mkdir -p "$$tmp/$$d"; done; \
-	( cd "$$tmp" && $(CURDIR)/tangle.sh $(ORG_INPUTS) ) >/dev/null; \
 	set +e; \
+	( cd "$$tmp" && $(CURDIR)/tangle.sh $(ORG_INPUTS) ) >/dev/null; \
 	n=0; rc=0; \
-	for f in `find "$$tmp" -name '*.py' | sort`; do \
+	find "$$tmp" -name '*.py' | sort > "$$tmp/.produced.abs"; \
+	while IFS= read -r f; do \
 	  rel=$${f#$$tmp/}; \
 	  n=$$((n+1)); \
 	  if [ ! -f "$(CURDIR)/$$rel" ]; then \
@@ -63,9 +76,25 @@ check-tangle:
 	    echo "check-tangle: DIFFERS from org:  $$rel"; \
 	    diff -u "$(CURDIR)/$$rel" "$$f" | head -20; rc=1; \
 	  fi; \
-	done; \
+	done < "$$tmp/.produced.abs"; \
 	if [ $$n -eq 0 ]; then \
-	  echo "check-tangle: tangle produced no files -- is emacs available?"; rc=1; \
+	  echo "check-tangle: tangle produced no files -- is emacs available?"; \
+	  exit 1; \
+	fi; \
+	if git -C $(CURDIR) rev-parse --git-dir >/dev/null 2>&1; then \
+	  sed "s|^$$tmp/||" "$$tmp/.produced.abs" | sort > "$$tmp/.produced"; \
+	  printf '%s\n' $(HANDWRITTEN_PY) | sort -u > "$$tmp/.handwritten"; \
+	  sort -u "$$tmp/.produced" "$$tmp/.handwritten" > "$$tmp/.expected"; \
+	  git -C $(CURDIR) ls-files -- metrics_miscellany \
+	    | grep '\.py$$' | sort > "$$tmp/.tracked"; \
+	  orphans=$$(comm -23 "$$tmp/.tracked" "$$tmp/.expected"); \
+	  if [ -n "$$orphans" ]; then \
+	    echo "$$orphans" | while read -r x; do \
+	      echo "check-tangle: ORPHAN in repo (tracked, but no org block tangles it): $$x"; \
+	    done; \
+	    echo "              Delete it, or add it to HANDWRITTEN_PY in the Makefile."; \
+	    rc=1; \
+	  fi; \
 	fi; \
 	if [ $$rc -ne 0 ]; then \
 	  echo "check-tangle: FAILED.  Run './tangle.sh $(ORG_INPUTS)' and commit the result"; \
@@ -105,7 +134,7 @@ coverage: tangle
 check: check-tangle tangle lint black mypy
 	$(POETRY) run pytest
 
-build: pyproject.toml tangle
+build: pyproject.toml check-tangle tangle
 	$(POETRY) build
 
 publish: build
