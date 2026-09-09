@@ -7,11 +7,22 @@ from scipy import sparse as scipy_sparse
 import pandas as pd
 
 def inv(A):
-    """Inverse of square pandas DataFrame."""
+    """Inverse of square pandas DataFrame.
+
+    Type preserving: a DataMat in yields a DataMat out, so the result still
+    carries DataMat's methods (.eig(), .inv(), ...).  Estimators here call
+    this rather than DataMat's own .inv so that they do not depend on
+    whether that is spelled as a property or a method (GH #6).
+
+    Labelled like pinv, with the index and columns of A exchanged: if A maps
+    the space labelled by A.columns to the one labelled by A.index, its
+    inverse maps back.  For the square, equally-labelled matrices this is
+    used on the two conventions coincide.
+    """
     if np.isscalar(A): A = pd.DataFrame(np.array([[A]]))
 
     B = np.linalg.inv(A)
-    return pd.DataFrame(B,columns=A.columns,index=A.index)
+    return A._constructor(B,index=A.columns,columns=A.index)
 
 def pinv(A):
     """Moore-Penrose pseudo-inverse of A.
@@ -23,7 +34,7 @@ def pinv(A):
     if np.isscalar(A): A = pd.DataFrame(np.array([[A]]))
 
     B = np.linalg.pinv(A)
-    return pd.DataFrame(B,columns=A.index,index=A.columns)
+    return A._constructor(B,columns=A.index,index=A.columns)
 
 def leverage(X):
     """
@@ -216,6 +227,8 @@ def kron(A, B, sparse=False):
 #+end_src
 *** Binary Operation Tests
 #+begin_src python :tangle metrics_miscellany/test/test_index_multiplication.py
+import inspect
+
 import pytest
 import datamat as dm
 import pandas as pd
@@ -236,7 +249,19 @@ def test_index_multiplication(setup_data_matrices):
     X, Y = setup_data_matrices
     result = X @ Y
     assert result.index.names == ['l']
-    X.matmul(Y, strict=True)
+
+    # X.columns carries a vestigial level ('j') that Y.index lacks, so this
+    # is the *reconciling* multiplication.  Its spelling moved between
+    # DataMat releases: through 0.2.1 `strict=True` attempted reconciliation,
+    # while 0.2.4 redefined `strict=True` as "labels must match exactly" and
+    # introduced `align=True` for the reconciling behaviour.  The estimators
+    # here only ever use `@`, which is unchanged, so pick whichever spelling
+    # the installed DataMat offers rather than pinning a version.
+    kwargs = ({'align': True}
+              if 'align' in inspect.signature(X.matmul).parameters
+              else {'strict': True})
+    reconciled = X.matmul(Y, **kwargs)
+    assert reconciled.index.names == ['l']
 
 if __name__=='__main__':
     pytest.main()
@@ -1263,7 +1288,7 @@ def restricted_tsls(y, X, R=None, r=None, Z=None, cov='HC3'):
 
     Qzz = Z.T @ Z / N
     Qxz = X.T @ Z / N
-    Qzzinv = Qzz.inv
+    Qzzinv = utils.inv(Qzz)
 
     # Q = X' P_Z X;  rhs_b = X' P_Z y.
     Q = N * Qxz @ Qzzinv @ Qxz.T
@@ -1294,7 +1319,7 @@ def restricted_tsls(y, X, R=None, r=None, Z=None, cov='HC3'):
     e = y - X @ b
 
     if cov in ('HC2', 'HC3'):
-        h = X.leverage if hasattr(X, 'leverage') else utils.leverage(X)
+        h = utils.leverage(X)
         if cov == 'HC2':
             e = e / np.sqrt(1 - h)
         else:
@@ -1304,7 +1329,7 @@ def restricted_tsls(y, X, R=None, r=None, Z=None, cov='HC3'):
     Omega = Ze.T @ Ze / N
 
     D = Qxz @ Qzzinv @ Qxz.T
-    Dinv = D.inv
+    Dinv = utils.inv(D)
     V_unr = Dinv @ (Qxz @ Qzzinv @ Omega @ Qzzinv @ Qxz.T) @ Dinv / N
 
     if R is not None:
@@ -1439,6 +1464,98 @@ if __name__=='__main__':
     test_restricted_tsls_matches_unrestricted_when_R_None()
 
 #+end_src
+*** Independence from DataMat's attribute spellings
+DataMat 0.2.4 converted =inv=, =pinv=, =det=, =trace= and =leverage= from
+=cached_property= to plain methods, because caching a derived value on a
+mutable pandas subclass is unsafe -- =M.iloc[0,0] = 4.0= left =M.inv= stale.
+The conversion was deliberate and is the right call, but it broke every
+caller here that used the property spelling ([[https://github.com/ligon/Metrics_Miscellany/issues/6][GH #6]]).
+
+The estimators now go through =utils.inv= and =utils.leverage= instead, which
+depend on neither spelling.  This test forces the *method* flavour whatever
+version is installed, so the coupling cannot come back unnoticed.
+
+#+begin_src python :tangle metrics_miscellany/test/test_datamat_api_independence.py
+import functools
+
+import numpy as np
+import pytest
+from datamat import DataMat, DataVec
+
+import datamat.core as datamat_core
+from metrics_miscellany.estimators import tsls, restricted_tsls, linear_gmm
+from metrics_miscellany.tests import cragg_donald
+
+CONVERTED = ("inv", "pinv", "det", "trace", "leverage")
+
+
+@pytest.fixture
+def methods_only(monkeypatch):
+    """Force DataMat's converted derivations to be methods, not properties.
+
+    On datamat <= 0.2.1 these are cached_property; on >= 0.2.4 they are
+    already methods and this is a no-op.  Either way the estimators must
+    not care.
+    """
+    for name in CONVERTED:
+        attr = datamat_core.DataMat.__dict__.get(name)
+        if isinstance(attr, functools.cached_property):
+            monkeypatch.setattr(datamat_core.DataMat, name, attr.func,
+                                raising=False)
+    return datamat_core.DataMat
+
+
+def _iv_dgp(N=2000, seed=0):
+    rng = np.random.default_rng(seed)
+    z = DataMat({'z': rng.standard_normal(N)})
+    u = DataVec(rng.standard_normal(N))
+    x = DataMat({'x': z.squeeze() + u})
+    x['Constant'] = 1
+    z['Constant'] = 1
+    beta = DataMat({'Coefficients': [1., 0.]}, index=['x', 'Constant'])
+    y = (x @ beta).squeeze() + u
+    return y, x, z
+
+
+def test_fixture_really_installs_methods(methods_only):
+    X = DataMat(np.eye(2) + np.ones((2, 2)), idxnames='i')
+    assert callable(X.inv), "fixture did not convert inv to a method"
+
+
+@pytest.mark.parametrize("cov", ["HC2", "HC3"])
+def test_tsls_runs_with_method_spelling(methods_only, cov):
+    """Covers the leverage path too: HC2/HC3 are what consume it."""
+    y, x, z = _iv_dgp()
+    b, Omega, V = restricted_tsls(y, x, Z=z, cov=cov)
+    assert np.allclose(np.asarray(b).ravel(), [1., 0.], atol=1e-1)
+
+
+def test_tsls_wrapper_runs_with_method_spelling(methods_only):
+    y, x, z = _iv_dgp()
+    b, V = tsls(x, y, z)
+    assert np.allclose(np.asarray(b).ravel(), [1., 0.], atol=1e-1)
+
+
+def test_linear_gmm_runs_with_method_spelling(methods_only):
+    y, x, z = _iv_dgp()
+    b = linear_gmm(x, y, z)[0]
+    assert np.allclose(np.asarray(b).ravel(), [1., 0.], atol=1e-1)
+
+
+def test_cragg_donald_runs_with_method_spelling(methods_only):
+    rng = np.random.default_rng(1)
+    n, l, m = 500, 4, 2
+    Z = DataMat(rng.standard_normal((n, l)))
+    Pi = DataMat(rng.standard_normal((l, m)))
+    X = Z @ Pi + DataMat(rng.standard_normal((n, m)))
+    s, pval = cragg_donald(X, Z)
+    assert np.isfinite(s) and 0.0 <= float(pval) <= 1.0
+
+
+if __name__ == '__main__':
+    pytest.main([__file__])
+#+end_src
+
 ** Factor Analysis (MLE)
 This routine adapted from sklearn's FactorAnalysis, but modified to permit missing values.
 #+begin_src python :tangle metrics_miscellany/estimators.py
@@ -1609,7 +1726,9 @@ def factor_analysis(V,r=1,psi=None,method='mle',tol=1e-12):
 
         Vhat = W.T@W + Psi
 
-        return -(p/2)*np.log(2*np.pi) - np.log(Vhat.det)/2 - (Vhat.inv@V).trace/2
+        return (-(p/2)*np.log(2*np.pi)
+                - np.log(np.linalg.det(Vhat))/2
+                - np.trace(utils.inv(Vhat)@V)/2)
 
     if psi is None or np.linalg.norm(psi)<tol:
         psi = np.ones(p)
@@ -1832,7 +1951,7 @@ def linear_gmm(X,y,Z,W=None,return_Omega=False):
 
     if W is None: # Use 2sls to get initial estimate of W
         b1,Omega1 = tsls(X,y,Z,return_Omega=True)
-        W = Omega1.inv
+        W = utils.inv(Omega1)
         # Forward return_Omega through the recursive call so callers asking
         # for Omega on a default-W invocation actually receive it.
         return linear_gmm(X,y,Z,W=W,return_Omega=return_Omega)
@@ -1856,7 +1975,7 @@ def linear_gmm(X,y,Z,W=None,return_Omega=False):
         if return_Omega:
             return b,Omega
         else:
-            Vb = (Qxz@Omega.inv@Qxz.T).inv/n
+            Vb = utils.inv(Qxz@utils.inv(Omega)@Qxz.T)/n
             return b,Vb
 
 #+end_src
@@ -3194,7 +3313,7 @@ def cragg_donald(X, Q):
         f"Cragg-Donald requires at least as many instruments as endogenous "
         f"regressors (got l={k}, m={m}).")
 
-    teststat = (X.T @ X.resid(Q)).inv @ (X.T @ X.proj(Q))
+    teststat = utils.inv(X.T @ X.resid(Q)) @ (X.T @ X.proj(Q))
     teststat = (n - k) * teststat.eig()[0].min()
 
     df = k - m + 1
