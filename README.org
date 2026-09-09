@@ -12,13 +12,13 @@ See [[file:docs/index.org][docs/index.org]] for contributor guides, release chec
 pip install git+https://github.com/ligon/Metrics_Miscellany
 #+end_src
 
-The [[https://github.com/ligon/DataMat][=datamat=]] dependency resolves from PyPI, so nothing further is needed.  To
-track DataMat's development head rather than its released version, name it first
-so pip prefers the checkout:
+The [[https://github.com/ligon/DataMat][=datamat=]] dependency resolves from PyPI, so nothing further is needed.
 
-#+begin_src bash
-pip install git+https://github.com/ligon/DataMat git+https://github.com/ligon/Metrics_Miscellany
-#+end_src
+Note that =pyproject.toml= currently caps it below 0.2.4.  DataMat 0.2.4 turned
+=DataMat.inv= from a =cached_property= into a method, and the estimators here
+still use it as an attribute, so =tsls=, =linear_gmm= and =cragg_donald= fail
+against it ([[https://github.com/ligon/Metrics_Miscellany/issues/6][GH #6]]).  Installing DataMat from its development head has the
+same problem, so do not do that until #6 is resolved.
 
 A =git+= install works because the Python modules tangled from =metrics_miscellany.org=
 are committed to the repository.  A PEP 517 build does not run =./tangle.sh=, so without

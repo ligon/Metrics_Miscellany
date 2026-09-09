@@ -13,7 +13,12 @@ python = ">=3.11,<4.0"
 numpy = ">=1.25"
 pandas = ">=1.5"
 scipy = ">=1.9"
-datamat = ">=0.2.1"
+# Upper bound is a stopgap for GH #6: datamat 0.2.4 turned DataMat.inv
+# from a cached_property into a method, and the estimators here still
+# use it as an attribute (`Qzz.inv`), so tsls, linear_gmm and
+# cragg_donald raise "unsupported operand type(s) for *: 'float' and
+# 'method'" against it.  0.2.1 is the last version that works.
+datamat = ">=0.2.1,<0.2.4"
 ipython = ">=8.26"
 
 [tool.poetry.group.dev.dependencies]
