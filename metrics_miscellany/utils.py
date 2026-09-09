@@ -3,11 +3,22 @@ from scipy import sparse as scipy_sparse
 import pandas as pd
 
 def inv(A):
-    """Inverse of square pandas DataFrame."""
+    """Inverse of square pandas DataFrame.
+
+    Type preserving: a DataMat in yields a DataMat out, so the result still
+    carries DataMat's methods (.eig(), .inv(), ...).  Estimators here call
+    this rather than DataMat's own .inv so that they do not depend on
+    whether that is spelled as a property or a method (GH #6).
+
+    Labelled like pinv, with the index and columns of A exchanged: if A maps
+    the space labelled by A.columns to the one labelled by A.index, its
+    inverse maps back.  For the square, equally-labelled matrices this is
+    used on the two conventions coincide.
+    """
     if np.isscalar(A): A = pd.DataFrame(np.array([[A]]))
 
     B = np.linalg.inv(A)
-    return pd.DataFrame(B,columns=A.columns,index=A.index)
+    return A._constructor(B,index=A.columns,columns=A.index)
 
 def pinv(A):
     """Moore-Penrose pseudo-inverse of A.
@@ -19,11 +30,15 @@ def pinv(A):
     if np.isscalar(A): A = pd.DataFrame(np.array([[A]]))
 
     B = np.linalg.pinv(A)
-    return pd.DataFrame(B,columns=A.index,index=A.columns)
+    return A._constructor(B,columns=A.index,index=A.columns)
 
 def leverage(X):
-    """
-    Leverage of matrix X; i.e., diagonal of projection matrix.
+    """Leverage of matrix X; i.e., diagonal of the projection matrix.
+
+    Uses the pseudo-inverse, so this is the diagonal of the projection
+    onto col(X) whatever the rank of X: the leverages sum to rank(X),
+    not to X.shape[1].  See the Leverage section for why the QR
+    shortcut is not used here.
     """
     return (X*pinv(X).T).sum(axis=1)
 
@@ -202,6 +217,8 @@ def kron(A, B, sparse=False):
 
     return pd.DataFrame(np.kron(Af.values, Bf.values),
                         index=index, columns=columns)
+
+import warnings
 
 def heteropca(C,r=1,max_its=50,tol=1e-3,verbose=False):
     """Estimate r factors and factor weights of covariance matrix C."""
@@ -449,6 +466,7 @@ def dummies(df,cols,suffix=False):
     return v
 
 import pandas as pd
+from pandas.errors import InvalidIndexError
 
 def use_indices(df,idxnames):
     if len(set(idxnames).intersection(df.index.names))==0:
@@ -535,15 +553,6 @@ def qr(X):
     R = pd.DataFrame(R,index=X.columns, columns=X.columns)
 
     return Q,R
-
-def leverage(X):
-    """
-    Return leverage of observations in X (the diagonals of the hat matrix).
-    """
-
-    Q = qr(X)[0]
-
-    return (Q**2).sum(axis=1)
 
 def hat_factory(X):
     """

@@ -334,6 +334,17 @@ def test_factor_analysis_unfinished_branches_raise():
         estimators.factor_analysis(X, svd_method='randomized')
 
 
+def test_heteropca_warns_instead_of_raising_on_max_its(square_psd):
+    """Hitting max_its must emit a warning.
+
+    `warnings` was never imported in the tangled utils.py, so this
+    branch raised NameError on exactly the non-convergence path the
+    warning exists to report.
+    """
+    with pytest.warns(UserWarning, match="Exceeded maximum iterations"):
+        utils.heteropca(square_psd, r=1, max_its=1)
+
+
 if __name__ == '__main__':
     rng = np.random.default_rng(0)
     A = rng.standard_normal((5, 5))

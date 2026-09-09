@@ -75,9 +75,10 @@ execute repeatably.
   =metrics_miscellany/= that the org does NOT tangle -- =__init__.py=,
   =test/README=, =test/test_ols_vs_statsmodels.py= -- are hand-written and
   are ignored by the check.
-- =test_maunchy.py= is not tangled: its subtree is marked =COMMENT=, so
-  org-babel-tangle skips it (51 of the 52 =:tangle= blocks produce output).
-  Un-COMMENT the subtree if you want that test back.
+- =test_maunchy.py= is not tangled: its subtree is marked =COMMENT=, which
+  org-babel-tangle skips.  That is why =./tangle.sh= reports one block fewer
+  than the file contains =:tangle= headers.  Un-COMMENT the subtree if you
+  want that test back.
 - Deleting a source block from the .org file does NOT delete the
   corresponding tangled .py.  Stale outputs persist on disk and
   pytest may still discover them.  Always =rm= the corresponding

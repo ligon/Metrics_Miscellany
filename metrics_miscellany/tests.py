@@ -277,7 +277,7 @@ def cragg_donald(X, Q):
         f"Cragg-Donald requires at least as many instruments as endogenous "
         f"regressors (got l={k}, m={m}).")
 
-    teststat = (X.T @ X.resid(Q)).inv @ (X.T @ X.proj(Q))
+    teststat = utils.inv(X.T @ X.resid(Q)) @ (X.T @ X.proj(Q))
     teststat = (n - k) * teststat.eig()[0].min()
 
     df = k - m + 1

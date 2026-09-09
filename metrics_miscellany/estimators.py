@@ -130,7 +130,7 @@ def restricted_tsls(y, X, R=None, r=None, Z=None, cov='HC3'):
 
     Qzz = Z.T @ Z / N
     Qxz = X.T @ Z / N
-    Qzzinv = Qzz.inv
+    Qzzinv = utils.inv(Qzz)
 
     # Q = X' P_Z X;  rhs_b = X' P_Z y.
     Q = N * Qxz @ Qzzinv @ Qxz.T
@@ -161,7 +161,7 @@ def restricted_tsls(y, X, R=None, r=None, Z=None, cov='HC3'):
     e = y - X @ b
 
     if cov in ('HC2', 'HC3'):
-        h = X.leverage if hasattr(X, 'leverage') else utils.leverage(X)
+        h = utils.leverage(X)
         if cov == 'HC2':
             e = e / np.sqrt(1 - h)
         else:
@@ -171,7 +171,7 @@ def restricted_tsls(y, X, R=None, r=None, Z=None, cov='HC3'):
     Omega = Ze.T @ Ze / N
 
     D = Qxz @ Qzzinv @ Qxz.T
-    Dinv = D.inv
+    Dinv = utils.inv(D)
     V_unr = Dinv @ (Qxz @ Qzzinv @ Omega @ Qzzinv @ Qxz.T) @ Dinv / N
 
     if R is not None:
@@ -436,7 +436,7 @@ def linear_gmm(X,y,Z,W=None,return_Omega=False):
 
     if W is None: # Use 2sls to get initial estimate of W
         b1,Omega1 = tsls(X,y,Z,return_Omega=True)
-        W = Omega1.inv
+        W = utils.inv(Omega1)
         # Forward return_Omega through the recursive call so callers asking
         # for Omega on a default-W invocation actually receive it.
         return linear_gmm(X,y,Z,W=W,return_Omega=return_Omega)
@@ -460,7 +460,7 @@ def linear_gmm(X,y,Z,W=None,return_Omega=False):
         if return_Omega:
             return b,Omega
         else:
-            Vb = (Qxz@Omega.inv@Qxz.T).inv/n
+            Vb = utils.inv(Qxz@utils.inv(Omega)@Qxz.T)/n
             return b,Vb
 
 def restricted_linear_gmm(X, y, Z, R, r, W=None, return_Omega=False):

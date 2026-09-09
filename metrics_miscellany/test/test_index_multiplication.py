@@ -1,3 +1,5 @@
+import inspect
+
 import pytest
 import datamat as dm
 import pandas as pd
@@ -18,7 +20,19 @@ def test_index_multiplication(setup_data_matrices):
     X, Y = setup_data_matrices
     result = X @ Y
     assert result.index.names == ['l']
-    X.matmul(Y, strict=True)
+
+    # X.columns carries a vestigial level ('j') that Y.index lacks, so this
+    # is the *reconciling* multiplication.  Its spelling moved between
+    # DataMat releases: through 0.2.1 `strict=True` attempted reconciliation,
+    # while 0.2.4 redefined `strict=True` as "labels must match exactly" and
+    # introduced `align=True` for the reconciling behaviour.  The estimators
+    # here only ever use `@`, which is unchanged, so pick whichever spelling
+    # the installed DataMat offers rather than pinning a version.
+    kwargs = ({'align': True}
+              if 'align' in inspect.signature(X.matmul).parameters
+              else {'strict': True})
+    reconciled = X.matmul(Y, **kwargs)
+    assert reconciled.index.names == ['l']
 
 if __name__=='__main__':
     pytest.main()
