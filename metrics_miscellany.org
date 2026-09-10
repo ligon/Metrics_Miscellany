@@ -8,6 +8,7 @@ import numpy as np
 from scipy import sparse as scipy_sparse
 import pandas as pd
 
+
 def inv(A):
     """Inverse of square pandas DataFrame.
 
@@ -21,10 +22,12 @@ def inv(A):
     inverse maps back.  For the square, equally-labelled matrices this is
     used on the two conventions coincide.
     """
-    if np.isscalar(A): A = pd.DataFrame(np.array([[A]]))
+    if np.isscalar(A):
+        A = pd.DataFrame(np.array([[A]]))
 
     B = np.linalg.inv(A)
-    return A._constructor(B,index=A.columns,columns=A.index)
+    return A._constructor(B, index=A.columns, columns=A.index)
+
 
 def pinv(A):
     """Moore-Penrose pseudo-inverse of A.
@@ -33,10 +36,12 @@ def pinv(A):
     >>> np.allclose(A@pinv(A),np.eye(2))
     True
     """
-    if np.isscalar(A): A = pd.DataFrame(np.array([[A]]))
+    if np.isscalar(A):
+        A = pd.DataFrame(np.array([[A]]))
 
     B = np.linalg.pinv(A)
-    return A._constructor(B,columns=A.index,index=A.columns)
+    return A._constructor(B, columns=A.index, index=A.columns)
+
 
 def leverage(X):
     """Leverage of matrix X; i.e., diagonal of the projection matrix.
@@ -46,35 +51,40 @@ def leverage(X):
     not to X.shape[1].  See the Leverage section for why the QR
     shortcut is not used here.
     """
-    return (X*pinv(X).T).sum(axis=1)
+    return (X * pinv(X).T).sum(axis=1)
 
-def svd(A,hermitian=False):
+
+def svd(A, hermitian=False):
     """Singular value composition into U@S.dg@V.T."""
     idx = A.index
     cols = A.columns
-    u,s,vt = np.linalg.svd(A,compute_uv=True,full_matrices=False,hermitian=hermitian)
-    u = pd.DataFrame(u,index=idx)
-    vt = pd.DataFrame(vt,columns=cols)
+    u, s, vt = np.linalg.svd(
+        A, compute_uv=True, full_matrices=False, hermitian=hermitian
+    )
+    u = pd.DataFrame(u, index=idx)
+    vt = pd.DataFrame(vt, columns=cols)
     s = pd.Series(s)
 
-    return u,s,vt
+    return u, s, vt
 
-def eig(A,hermitian=False):
+
+def eig(A, hermitian=False):
     """Singular value composition into U@S.dg@V.T."""
     idx = A.index
     cols = A.columns
     if hermitian:
-        s2,u = np.linalg.eigh(A)
+        s2, u = np.linalg.eigh(A)
     else:
-        s2,u = np.linalg.eig(A)
+        s2, u = np.linalg.eig(A)
 
     s2 = np.flip(s2)
     u = np.fliplr(u)
 
-    u = pd.DataFrame(u,index=idx,columns=cols)
+    u = pd.DataFrame(u, index=idx, columns=cols)
     s2 = pd.Series(s2.squeeze())
 
-    return s2,u
+    return s2, u
+
 
 def diag(X, sparse=True):
     """Build or extract a diagonal matrix.
@@ -102,35 +112,30 @@ def diag(X, sparse=True):
     except IndexError:  # X is a Series-like 1-d
         if sparse:
             spmat = scipy_sparse.diags(X.values)
-            d = pd.DataFrame.sparse.from_spmatrix(
-                spmat, index=X.index, columns=X.index)
-            d = d.fillna(0).astype(pd.SparseDtype('float64', fill_value=0.0))
+            d = pd.DataFrame.sparse.from_spmatrix(spmat, index=X.index, columns=X.index)
+            d = d.fillna(0).astype(pd.SparseDtype("float64", fill_value=0.0))
         else:
-            d = pd.DataFrame(
-                np.diag(X.values), index=X.index, columns=X.index)
+            d = pd.DataFrame(np.diag(X.values), index=X.index, columns=X.index)
     except AttributeError:  # Not a pandas object
         d = np.diag(X)
 
     return d
-
-
-
 #+end_src
 
 ** Binary Matrix Products
 #+begin_src python :tangle metrics_miscellany/utils.py
-def outer(S,T):
-    """Outer product of two series (vectors) S & T.
-    """
-    return pd.DataFrame(np.outer(S,T),index=S.index,columns=T.index)
+def outer(S, T):
+    """Outer product of two series (vectors) S & T."""
+    return pd.DataFrame(np.outer(S, T), index=S.index, columns=T.index)
 
-def matrix_product(X,Y,strict=False,fillmiss=True):
+
+def matrix_product(X, Y, strict=False, fillmiss=True):
     """Compute matrix product X@Y, allowing for possibility of missing data.
 
     The "strict" flag if set requires that the names of levels of indices that vary for columns of X be in the intersection of names of levels of indices that vary for rows of Y.
     """
 
-    if strict and not all(X.columns==Y.index):  # Columns and Indices don't match.
+    if strict and not all(X.columns == Y.index):  # Columns and Indices don't match.
         X.columns = drop_vestigial_levels(X.columns)
         Y.index = drop_vestigial_levels(Y.index)
 
@@ -138,38 +143,40 @@ def matrix_product(X,Y,strict=False,fillmiss=True):
         X = X.fillna(0)
         Y = Y.fillna(0)
 
-    prod = np.dot(X,Y) #.squeeze()
+    prod = np.dot(X, Y)  # .squeeze()
 
-    if len(prod.shape)==1 or prod.shape[1]==1:
-        out = pd.Series(prod.squeeze(),index=X.index)
+    if len(prod.shape) == 1 or prod.shape[1] == 1:
+        out = pd.Series(prod.squeeze(), index=X.index)
     else:
         try:
             cols = Y.columns
         except AttributeError:
             cols = None
-        out = pd.DataFrame(prod,index=X.index,columns=cols)
+        out = pd.DataFrame(prod, index=X.index, columns=cols)
 
     return out
 
-def self_inner(X,min_obs=None):
+
+def self_inner(X, min_obs=None):
     """Compute inner product X.T@X, allowing for possibility of missing data."""
-    n,m=X.shape
+    n, m = X.shape
 
-    if n<m:
-        axis=1
-        N=m
+    if n < m:
+        axis = 1
+        N = m
     else:
-        axis=0
-        N=n
+        axis = 0
+        N = n
 
-    xbar=X.mean(axis=axis)
+    xbar = X.mean(axis=axis)
 
     if axis:
-        C=(N-1)*X.T.cov(min_periods=min_obs)
+        C = (N - 1) * X.T.cov(min_periods=min_obs)
     else:
-        C=(N-1)*X.cov(min_periods=min_obs)
+        C = (N - 1) * X.cov(min_periods=min_obs)
 
-    return C + N*np.outer(xbar,xbar)
+    return C + N * np.outer(xbar, xbar)
+
 
 def _kron_axis(left, right):
     """Build the row or column labels of a Kronecker product.
@@ -180,6 +187,7 @@ def _kron_axis(left, right):
     silently unpacks string labels character-by-character and crashes
     on numeric labels.
     """
+
     def as_tuples(idx):
         if isinstance(idx, pd.MultiIndex):
             return list(idx)
@@ -203,6 +211,7 @@ def kron(A, B, sparse=False):
     If =sparse= is True the product is computed via
     =scipy.sparse.kron= and returned as a sparse DataFrame.
     """
+
     def to_frame(M):
         if isinstance(M, pd.DataFrame):
             return M
@@ -212,8 +221,7 @@ def kron(A, B, sparse=False):
         if arr.ndim == 1:
             arr = arr.reshape((-1, 1))
         elif arr.ndim != 2:
-            raise ValueError(
-                f"kron operands must be 1-d or 2-d; got ndim={arr.ndim}.")
+            raise ValueError(f"kron operands must be 1-d or 2-d; got ndim={arr.ndim}.")
         return pd.DataFrame(arr)
 
     Af = to_frame(A)
@@ -224,12 +232,11 @@ def kron(A, B, sparse=False):
 
     if sparse:
         from scipy.sparse import kron as sp_kron
+
         k = sp_kron(Af.values, Bf.values)
         return pd.DataFrame.sparse.from_spmatrix(k, index=index, columns=columns)
 
-    return pd.DataFrame(np.kron(Af.values, Bf.values),
-                        index=index, columns=columns)
-
+    return pd.DataFrame(np.kron(Af.values, Bf.values), index=index, columns=columns)
 #+end_src
 *** Binary Operation Tests
 #+begin_src python :tangle metrics_miscellany/test/test_index_multiplication.py
@@ -240,21 +247,26 @@ import datamat as dm
 import pandas as pd
 import numpy as np
 
+
 @pytest.fixture
 def setup_indices():
-    idx = pd.MultiIndex.from_tuples([(0,0,0),(0,0,1),(1,0,0),(1,0,1)], names=['i','j','k'])
+    idx = pd.MultiIndex.from_tuples(
+        [(0, 0, 0), (0, 0, 1), (1, 0, 0), (1, 0, 1)], names=["i", "j", "k"]
+    )
     return idx
+
 
 @pytest.fixture
 def setup_data_matrices(setup_indices):
-    X = dm.DataMat([[1,2,3,4]], columns=setup_indices, idxnames=['l'])
-    Y = dm.DataMat([[1,2,3,0]], columns=setup_indices.droplevel('j'), idxnames='m').T
+    X = dm.DataMat([[1, 2, 3, 4]], columns=setup_indices, idxnames=["l"])
+    Y = dm.DataMat([[1, 2, 3, 0]], columns=setup_indices.droplevel("j"), idxnames="m").T
     return X, Y
+
 
 def test_index_multiplication(setup_data_matrices):
     X, Y = setup_data_matrices
     result = X @ Y
-    assert result.index.names == ['l']
+    assert result.index.names == ["l"]
 
     # X.columns carries a vestigial level ('j') that Y.index lacks, so this
     # is the *reconciling* multiplication.  Its spelling moved between
@@ -263,13 +275,16 @@ def test_index_multiplication(setup_data_matrices):
     # introduced `align=True` for the reconciling behaviour.  The estimators
     # here only ever use `@`, which is unchanged, so pick whichever spelling
     # the installed DataMat offers rather than pinning a version.
-    kwargs = ({'align': True}
-              if 'align' in inspect.signature(X.matmul).parameters
-              else {'strict': True})
+    kwargs = (
+        {"align": True}
+        if "align" in inspect.signature(X.matmul).parameters
+        else {"strict": True}
+    )
     reconciled = X.matmul(Y, **kwargs)
-    assert reconciled.index.names == ['l']
+    assert reconciled.index.names == ["l"]
 
-if __name__=='__main__':
+
+if __name__ == "__main__":
     pytest.main()
 #+end_src
 
@@ -279,44 +294,53 @@ import datamat as dm
 import pandas as pd
 import numpy as np
 
+
 @pytest.fixture
 def numpy_matrices():
-    A = np.array([[1,2],[3,4]])
-    B = np.array([[1,1]]).T
+    A = np.array([[1, 2], [3, 4]])
+    B = np.array([[1, 1]]).T
     return A, B
+
 
 @pytest.fixture
 def pandas_matrices():
-    A = pd.DataFrame([[1,2],[3,4]])
-    B = pd.DataFrame([[1,1]]).T
+    A = pd.DataFrame([[1, 2], [3, 4]])
+    B = pd.DataFrame([[1, 1]]).T
     return A, B
+
 
 @pytest.fixture
 def datamat_matrices():
-    A = dm.DataMat([[1,2],[3,4]])
-    B = dm.DataMat([[1,1]]).T
+    A = dm.DataMat([[1, 2], [3, 4]])
+    B = dm.DataMat([[1, 1]]).T
     return A, B
+
 
 def test_matmul(numpy_matrices, pandas_matrices, datamat_matrices):
     for A, B in [numpy_matrices, pandas_matrices, datamat_matrices]:
         C = A @ B
         if isinstance(A, dm.DataMat):
-            expected = dm.DataVec if getattr(B, "shape", (None, None))[1] == 1 else dm.DataMat
+            expected = (
+                dm.DataVec if getattr(B, "shape", (None, None))[1] == 1 else dm.DataMat
+            )
             assert isinstance(C, expected)
         else:
             assert isinstance(C, type(A))
 
+
 @pytest.fixture
 def datamat_vector():
-    A = dm.DataMat([[1,2],[3,4]])
-    b = dm.DataVec([1,1])
+    A = dm.DataMat([[1, 2], [3, 4]])
+    b = dm.DataVec([1, 1])
     return A, b
+
 
 @pytest.fixture
 def pandas_vector():
-    A = dm.DataMat([[1,2],[3,4]])
-    b = pd.Series([1,1])
+    A = dm.DataMat([[1, 2], [3, 4]])
+    b = pd.Series([1, 1])
     return A, b
+
 
 def test_matmul_matvec(datamat_vector, pandas_vector):
     for A, b in [datamat_vector, pandas_vector]:
@@ -328,36 +352,44 @@ def test_kron_flat_index_string_labels():
     """Two flat-Index DataFrames with multi-character string labels must
     round-trip through kron without character-unpacking the labels."""
     from metrics_miscellany.utils import kron
-    A = pd.DataFrame([[1, 2], [3, 4]],
-                     index=pd.Index(['alpha', 'beta'], name='l'),
-                     columns=pd.Index(['xx', 'yy'], name='c'))
-    B = pd.DataFrame([[5, 6], [7, 8]],
-                     index=pd.Index(['gamma', 'delta'], name='k'),
-                     columns=pd.Index(['pp', 'qq'], name='d'))
+
+    A = pd.DataFrame(
+        [[1, 2], [3, 4]],
+        index=pd.Index(["alpha", "beta"], name="l"),
+        columns=pd.Index(["xx", "yy"], name="c"),
+    )
+    B = pd.DataFrame(
+        [[5, 6], [7, 8]],
+        index=pd.Index(["gamma", "delta"], name="k"),
+        columns=pd.Index(["pp", "qq"], name="d"),
+    )
     K = kron(A, B)
     assert K.shape == (4, 4)
-    assert list(K.index.names) == ['l', 'k']
-    assert list(K.columns.names) == ['c', 'd']
+    assert list(K.index.names) == ["l", "k"]
+    assert list(K.columns.names) == ["c", "d"]
     np.testing.assert_array_equal(K.values, np.kron(A.values, B.values))
-    assert ('alpha', 'gamma') in K.index
-    assert ('xx', 'pp') in K.columns
+    assert ("alpha", "gamma") in K.index
+    assert ("xx", "pp") in K.columns
 
 
 def test_kron_mixed_multi_and_flat():
     """Mixing MultiIndex and flat Index should produce a properly named
     cartesian-product MultiIndex on the output."""
     from metrics_miscellany.utils import kron
-    A = pd.DataFrame(np.arange(4).reshape(2, 2),
-                     index=pd.MultiIndex.from_tuples([(0, 'a'), (0, 'b')],
-                                                    names=['i', 'j']),
-                     columns=pd.Index(['c0', 'c1'], name='c'))
-    B = pd.DataFrame(np.arange(6).reshape(3, 2),
-                     index=pd.Index(range(3), name='k'),
-                     columns=pd.MultiIndex.from_tuples([('x', 1), ('x', 2)],
-                                                      names=['s', 't']))
+
+    A = pd.DataFrame(
+        np.arange(4).reshape(2, 2),
+        index=pd.MultiIndex.from_tuples([(0, "a"), (0, "b")], names=["i", "j"]),
+        columns=pd.Index(["c0", "c1"], name="c"),
+    )
+    B = pd.DataFrame(
+        np.arange(6).reshape(3, 2),
+        index=pd.Index(range(3), name="k"),
+        columns=pd.MultiIndex.from_tuples([("x", 1), ("x", 2)], names=["s", "t"]),
+    )
     K = kron(A, B)
-    assert list(K.index.names) == ['i', 'j', 'k']
-    assert list(K.columns.names) == ['c', 's', 't']
+    assert list(K.index.names) == ["i", "j", "k"]
+    assert list(K.columns.names) == ["c", "s", "t"]
     assert K.shape == (6, 4)
     np.testing.assert_array_equal(K.values, np.kron(A.values, B.values))
 
@@ -365,15 +397,15 @@ def test_kron_mixed_multi_and_flat():
 def test_kron_with_ndarray_operand():
     """kron should accept a DataFrame paired with a NumPy ndarray."""
     from metrics_miscellany.utils import kron
-    A = pd.DataFrame([[1, 2], [3, 4]],
-                     index=['r0', 'r1'], columns=['c0', 'c1'])
+
+    A = pd.DataFrame([[1, 2], [3, 4]], index=["r0", "r1"], columns=["c0", "c1"])
     B = np.array([[5], [6]])
     K = kron(A, B)
     assert K.shape == (4, 2)
     np.testing.assert_array_equal(K.values, np.kron(A.values, B))
 
 
-if __name__=='__main__':
+if __name__ == "__main__":
     pytest.main()
 #+end_src
 
@@ -381,40 +413,43 @@ if __name__=='__main__':
 #+begin_src python :tangle metrics_miscellany/utils.py
 import warnings
 
-def heteropca(C,r=1,max_its=50,tol=1e-3,verbose=False):
+
+def heteropca(C, r=1, max_its=50, tol=1e-3, verbose=False):
     """Estimate r factors and factor weights of covariance matrix C."""
     from scipy.spatial import procrustes
 
     N = C - np.diag(np.diag(C))
 
-    ulast = np.zeros((N.shape[1],r))
-    u = np.zeros((N.shape[1],r))
-    u[0,0] = 1
-    ulast[-1,0] = 1
+    ulast = np.zeros((N.shape[1], r))
+    u = np.zeros((N.shape[1], r))
+    u[0, 0] = 1
+    ulast[-1, 0] = 1
 
     t = 0
 
-    while procrustes(u,ulast)[-1] >tol and t<max_its:
+    while procrustes(u, ulast)[-1] > tol and t < max_its:
         ulast = u
 
-        u,s,vt = np.linalg.svd(N,full_matrices=False,hermitian=True)
+        u, s, vt = np.linalg.svd(N, full_matrices=False, hermitian=True)
 
         s = s[:r]
-        u = u[:,:r]
+        u = u[:, :r]
 
-        Ntilde = u[:,:r]@np.diag(s[:r])@vt[:r,:]
+        Ntilde = u[:, :r] @ np.diag(s[:r]) @ vt[:r, :]
 
         N = N - np.diag(np.diag(N)) + np.diag(np.diag(Ntilde))
 
         t += 1
 
-        if t==max_its:
+        if t == max_its:
             warnings.warn("Exceeded maximum iterations (%d)" % max_its)
-        if verbose: print(f"Iteration {t}, u[0,:r]={u[0,:r]}.")
+        if verbose:
+            print(f"Iteration {t}, u[0,:r]={u[0,:r]}.")
 
-    return u,s
+    return u, s
 
-def svd_missing(A,max_rank=None,min_obs=None,heteroskedastic=False,verbose=False):
+
+def svd_missing(A, max_rank=None, min_obs=None, heteroskedastic=False, verbose=False):
     """Singular Value Decomposition with missing values
 
     Returns matrices U,S,V.T, where A~=U*S*V.T.
@@ -443,54 +478,55 @@ def svd_missing(A,max_rank=None,min_obs=None,heteroskedastic=False,verbose=False
 
     """
     # Defaults; modify by passing a tuple to heteroskedastic argument.
-    max_its=50
+    max_its = 50
     tol = 1e-3
 
-    P = self_inner(A,min_obs=min_obs) # P = A.T@A
+    P = self_inner(A, min_obs=min_obs)  # P = A.T@A
 
-    sigmas,v=np.linalg.eigh(P)
+    sigmas, v = np.linalg.eigh(P)
 
-    order=np.argsort(-sigmas)
-    sigmas=sigmas[order]
+    order = np.argsort(-sigmas)
+    sigmas = sigmas[order]
 
     # Truncate rank of representation using Kaiser criterion (positive eigenvalues)
-    v=v[:,order]
-    v=v[:,sigmas>0]
-    s=np.sqrt(sigmas[sigmas>0])
+    v = v[:, order]
+    v = v[:, sigmas > 0]
+    s = np.sqrt(sigmas[sigmas > 0])
 
     if max_rank is not None and len(s) > max_rank:
-        v=v[:,:max_rank]
-        s=s[:max_rank]
+        v = v[:, :max_rank]
+        s = s[:max_rank]
 
-    r=len(s)
+    r = len(s)
 
-    if heteroskedastic: # Interpret tuple
+    if heteroskedastic:  # Interpret tuple
         try:
-            max_its,tol = heteroskedastic
+            max_its, tol = heteroskedastic
         except TypeError:
             pass
         Pbar = P.mean()
-        v,s = heteropca(P-Pbar,r=r,max_its=max_its,tol=tol,verbose=verbose)
+        v, s = heteropca(P - Pbar, r=r, max_its=max_its, tol=tol, verbose=verbose)
 
-    if A.shape[0]==A.shape[1]: # Symmetric; v=u
-        return v,s,v.T
+    if A.shape[0] == A.shape[1]:  # Symmetric; v=u
+        return v, s, v.T
     else:
-        vs=v@np.diag(s)
+        vs = v @ np.diag(s)
 
-        u=np.zeros((A.shape[0],len(s)))
+        u = np.zeros((A.shape[0], len(s)))
         for j in range(A.shape[0]):
-            a=A.iloc[j,:].values.reshape((-1,1))
-            x=np.nonzero(~np.isnan(a))[0] # non-missing elements of vector a
-            if len(x)>=r:
-                u[j,:]=(np.linalg.pinv(vs[x,:])@a[x]).reshape(-1)
+            a = A.iloc[j, :].values.reshape((-1, 1))
+            x = np.nonzero(~np.isnan(a))[0]  # non-missing elements of vector a
+            if len(x) >= r:
+                u[j, :] = (np.linalg.pinv(vs[x, :]) @ a[x]).reshape(-1)
             else:
-                u[j,:]=np.nan
+                u[j, :] = np.nan
 
     s = pd.Series(s)
-    u = pd.DataFrame(u,index=A.index)
-    v = pd.DataFrame(v,index=A.columns)
+    u = pd.DataFrame(u, index=A.index)
+    v = pd.DataFrame(v, index=A.columns)
 
-    return u,s,v
+    return u, s, v
+
 
 def sqrtm(A, hermitian=False, tol=None):
     """
@@ -527,7 +563,8 @@ def sqrtm(A, hermitian=False, tol=None):
     if eigvals.min() < -tol:
         raise ValueError(
             "Matrix must be positive semi-definite; smallest eigenvalue "
-            f"is {eigvals.min():.4g} (tol = {tol:.4g}).")
+            f"is {eigvals.min():.4g} (tol = {tol:.4g})."
+        )
 
     eigvals_clipped = np.maximum(eigvals, 0.0)
     S = eigvecs @ np.diag(np.sqrt(eigvals_clipped)) @ eigvecs.T
@@ -536,18 +573,20 @@ def sqrtm(A, hermitian=False, tol=None):
         return pd.DataFrame(S, index=A.index, columns=A.columns)
     return S
 
+
 def cholesky(A):
     """
     Cholesky decomposition A = L@L.T; return lower-triangular L.
     """
     L = np.linalg.cholesky(A)
-    return pd.DataFrame(L,index=A.index,columns=A.columns)
+    return pd.DataFrame(L, index=A.index, columns=A.columns)
 #+end_src
 ** DataFrame/Mat Manipulations
 #+begin_src python :tangle metrics_miscellany/utils.py
 from pandas import concat, get_dummies, MultiIndex
 
-def drop_missing(X,infinities=False):
+
+def drop_missing(X, infinities=False):
     """
     Return tuple of pd.DataFrames in X with any
     missing observations dropped.  Assumes common index.
@@ -556,29 +595,30 @@ def drop_missing(X,infinities=False):
     treated as missing values.
     """
 
-    if isinstance(X,dict):
-        return dict(zip(X.keys(),drop_missing(list(X.values()),infinities=False)))
+    if isinstance(X, dict):
+        return dict(zip(X.keys(), drop_missing(list(X.values()), infinities=False)))
 
-    for i,x in enumerate(X):
-        if type(x)==pd.Series and x.name is None:
+    for i, x in enumerate(X):
+        if type(x) == pd.Series and x.name is None:
             x.name = i
 
-    foo=pd.concat(X,axis=1)
+    foo = pd.concat(X, axis=1)
     if not infinities:
-        foo.replace(np.inf,np.nan)
-        foo.replace(-np.inf,np.nan)
+        foo.replace(np.inf, np.nan)
+        foo.replace(-np.inf, np.nan)
 
-    foo = foo.dropna(how='any')
+    foo = foo.dropna(how="any")
 
-    assert len(set(foo.columns))==len(foo.columns) # Column names must be unique!
+    assert len(set(foo.columns)) == len(foo.columns)  # Column names must be unique!
 
-    Y=[]
+    Y = []
     for x in X:
-        Y.append(foo.loc[:,pd.DataFrame(x).columns])
+        Y.append(foo.loc[:, pd.DataFrame(x).columns])
 
     return tuple(Y)
 
-def dummies(df,cols,suffix=False):
+
+def dummies(df, cols, suffix=False):
     """From a dataframe df, construct an array of indicator (dummy) variables,
     with a column for every unique tuple of values in df[cols].  The list
     =cols= can mix names of regular columns of df with names of levels of a
@@ -617,7 +657,7 @@ def dummies(df,cols,suffix=False):
     v = get_dummies(tuples).astype(int)
 
     if suffix is True:
-        suffix = '_d'
+        suffix = "_d"
     add_suffix = isinstance(suffix, str) and len(suffix) > 0
     if add_suffix:
         columns = [tuple(str(c) + suffix for c in t) for t in v.columns]
@@ -634,48 +674,55 @@ def dummies(df,cols,suffix=False):
 from metrics_miscellany.utils import dummies, use_indices
 import pandas as pd
 
-def test_dummies():
-    idx = pd.MultiIndex.from_tuples([(i,) for i in range(4)],names=['i'])
-    foo = pd.DataFrame({'cat':['a','b','b','c']},index=idx)
 
-    assert dummies(foo,['i']).shape == (4,4)
-    assert dummies(foo,['cat']).shape == (4,3)
+def test_dummies():
+    idx = pd.MultiIndex.from_tuples([(i,) for i in range(4)], names=["i"])
+    foo = pd.DataFrame({"cat": ["a", "b", "b", "c"]}, index=idx)
+
+    assert dummies(foo, ["i"]).shape == (4, 4)
+    assert dummies(foo, ["cat"]).shape == (4, 3)
+
 
 def test_dummies_preserves_level_order():
     """The order of MultiIndex level names must match the caller-supplied
     order of =cols= and not depend on Python's hash randomization.
     """
-    idx = pd.MultiIndex.from_product([['m','f'],['young','old']],
-                                     names=['sex','age'])
-    df = pd.DataFrame({'val':[1,2,3,4]}, index=idx)
+    idx = pd.MultiIndex.from_product(
+        [["m", "f"], ["young", "old"]], names=["sex", "age"]
+    )
+    df = pd.DataFrame({"val": [1, 2, 3, 4]}, index=idx)
 
-    out = dummies(df, ['sex','age'])
-    assert list(out.columns.names) == ['sex','age']
+    out = dummies(df, ["sex", "age"])
+    assert list(out.columns.names) == ["sex", "age"]
     assert list(out.columns) == [
-        ('f','old'), ('f','young'), ('m','old'), ('m','young'),
+        ("f", "old"),
+        ("f", "young"),
+        ("m", "old"),
+        ("m", "young"),
     ]
 
-    out2 = dummies(df, ['age','sex'])
-    assert list(out2.columns.names) == ['age','sex']
+    out2 = dummies(df, ["age", "sex"])
+    assert list(out2.columns.names) == ["age", "sex"]
+
 
 def test_dummies_mixed_index_and_column():
     """When =cols= mixes index levels and regular columns, the user-supplied
     order must be honored.
     """
-    idx = pd.MultiIndex.from_product([[0,1],[10,20]], names=['i','t'])
-    df = pd.DataFrame({'cat':['a','b','b','c']}, index=idx)
+    idx = pd.MultiIndex.from_product([[0, 1], [10, 20]], names=["i", "t"])
+    df = pd.DataFrame({"cat": ["a", "b", "b", "c"]}, index=idx)
 
-    out_cat_first = dummies(df, ['cat','i'])
-    assert list(out_cat_first.columns.names) == ['cat','i']
+    out_cat_first = dummies(df, ["cat", "i"])
+    assert list(out_cat_first.columns.names) == ["cat", "i"]
 
-    out_i_first = dummies(df, ['i','cat'])
-    assert list(out_i_first.columns.names) == ['i','cat']
+    out_i_first = dummies(df, ["i", "cat"])
+    assert list(out_i_first.columns.names) == ["i", "cat"]
 
-if __name__=='__main__':
+
+if __name__ == "__main__":
     test_dummies()
     test_dummies_preserves_level_order()
     test_dummies_mixed_index_and_column()
-
 #+end_src
 
 ** Index utilities
@@ -683,8 +730,9 @@ if __name__=='__main__':
 import pandas as pd
 from pandas.errors import InvalidIndexError
 
-def use_indices(df,idxnames):
-    if len(set(idxnames).intersection(df.index.names))==0:
+
+def use_indices(df, idxnames):
+    if len(set(idxnames).intersection(df.index.names)) == 0:
         return pd.DataFrame(index=df.index)
 
     try:
@@ -695,7 +743,8 @@ def use_indices(df,idxnames):
     except InvalidIndexError:
         return df
 
-def drop_vestigial_levels(idx,axis=0,both=False,multiindex=False):
+
+def drop_vestigial_levels(idx, axis=0, both=False, multiindex=False):
     """
     Drop levels that don't vary across the index.
 
@@ -717,12 +766,12 @@ def drop_vestigial_levels(idx,axis=0,both=False,multiindex=False):
     FrozenList(['j'])
     """
     if both:
-        return drop_vestigial_levels(drop_vestigial_levels(idx,axis=1))
+        return drop_vestigial_levels(drop_vestigial_levels(idx, axis=1))
 
-    if axis==1:
+    if axis == 1:
         idx = idx.T
 
-    if isinstance(idx,(pd.DataFrame,pd.Series)):
+    if isinstance(idx, (pd.DataFrame, pd.Series)):
         df = idx
         idx = df.index
         HumptyDumpty = True
@@ -749,11 +798,10 @@ def drop_vestigial_levels(idx,axis=0,both=False,multiindex=False):
     if HumptyDumpty:
         df.index = idx
         idx = df
-        if axis==1:
+        if axis == 1:
             idx = idx.T
 
     return idx
-
 #+end_src
 *** Test of =use_indices=
 #+begin_src python :tangle metrics_miscellany/test/test_use_indices.py
@@ -762,15 +810,17 @@ from pandas.errors import InvalidIndexError
 from metrics_miscellany.utils import use_indices
 import numpy as np
 
+
 def test_use_indices():
-    idx = pd.MultiIndex.from_tuples([(i,) for i in range(4)],names=['i'])
-    foo = pd.DataFrame({'cat':['a','b','b','c']},index=idx)
+    idx = pd.MultiIndex.from_tuples([(i,) for i in range(4)], names=["i"])
+    foo = pd.DataFrame({"cat": ["a", "b", "b", "c"]}, index=idx)
 
-    assert use_indices(foo,['i']).shape[0]==foo.shape[0]
-    assert use_indices(foo,['cat']).size==0
-    assert use_indices(foo,['cat','i']).shape[0]==foo.shape[0]
+    assert use_indices(foo, ["i"]).shape[0] == foo.shape[0]
+    assert use_indices(foo, ["cat"]).size == 0
+    assert use_indices(foo, ["cat", "i"]).shape[0] == foo.shape[0]
 
-    assert np.all(use_indices(foo,['i']).index==idx)
+    assert np.all(use_indices(foo, ["i"]).index == idx)
+
 
 def test_use_indices_invalid_index_falls_back():
     """The InvalidIndexError handler must be reachable.
@@ -779,24 +829,24 @@ def test_use_indices_invalid_index_falls_back():
     in the try body surfaced as `NameError: name 'InvalidIndexError' is
     not defined` instead of the intended fallback.
     """
+
     class Raising(pd.DataFrame):
         @property
         def _constructor(self):
             return Raising
 
-        def reset_index(self,*args,**kwargs):
+        def reset_index(self, *args, **kwargs):
             raise InvalidIndexError("forced")
 
-    idx = pd.MultiIndex.from_tuples([(i,) for i in range(3)],names=['i'])
-    df = Raising({'cat':list('abc')},index=idx)
+    idx = pd.MultiIndex.from_tuples([(i,) for i in range(3)], names=["i"])
+    df = Raising({"cat": list("abc")}, index=idx)
 
-    assert use_indices(df,['i']) is df
+    assert use_indices(df, ["i"]) is df
 
-if __name__=='__main__':
+
+if __name__ == "__main__":
     test_use_indices()
     test_use_indices_invalid_index_falls_back()
-
-
 #+end_src
 
 ** Wrapper tests for utils
@@ -819,7 +869,7 @@ def square_psd():
     rng = np.random.default_rng(0)
     A = rng.standard_normal((5, 5))
     M = A @ A.T + np.eye(5)  # PD
-    labels = list('abcde')
+    labels = list("abcde")
     return pd.DataFrame(M, index=labels, columns=labels)
 
 
@@ -828,8 +878,7 @@ def rectangular_full_rank():
     """A 6x3 full-column-rank DataFrame."""
     rng = np.random.default_rng(1)
     M = rng.standard_normal((6, 3))
-    return pd.DataFrame(
-        M, index=[f"r{i}" for i in range(6)], columns=list('xyz'))
+    return pd.DataFrame(M, index=[f"r{i}" for i in range(6)], columns=list("xyz"))
 
 
 def test_svd_round_trip(square_psd):
@@ -869,24 +918,22 @@ def test_eig_general_case_runs(square_psd):
 def test_qr_round_trip(rectangular_full_rank):
     """Q @ R should reconstruct X and Q'Q should be I."""
     Q, R = utils.qr(rectangular_full_rank)
+    np.testing.assert_allclose((Q @ R).values, rectangular_full_rank.values, atol=1e-10)
     np.testing.assert_allclose(
-        (Q @ R).values, rectangular_full_rank.values, atol=1e-10)
-    np.testing.assert_allclose(
-        Q.values.T @ Q.values, np.eye(rectangular_full_rank.shape[1]),
-        atol=1e-10)
+        Q.values.T @ Q.values, np.eye(rectangular_full_rank.shape[1]), atol=1e-10
+    )
     # Labels: Q rows match X rows, R rows/cols match X columns.
     assert list(Q.index) == list(rectangular_full_rank.index)
     assert list(R.index) == list(rectangular_full_rank.columns)
 
 
 def test_outer_shape_and_labels():
-    s = pd.Series([1.0, 2.0, 3.0], index=['a', 'b', 'c'])
-    t = pd.Series([10.0, 20.0], index=['x', 'y'])
+    s = pd.Series([1.0, 2.0, 3.0], index=["a", "b", "c"])
+    t = pd.Series([10.0, 20.0], index=["x", "y"])
     out = utils.outer(s, t)
-    np.testing.assert_array_equal(
-        out.values, np.outer(s.values, t.values))
-    assert list(out.index) == ['a', 'b', 'c']
-    assert list(out.columns) == ['x', 'y']
+    np.testing.assert_array_equal(out.values, np.outer(s.values, t.values))
+    assert list(out.index) == ["a", "b", "c"]
+    assert list(out.columns) == ["x", "y"]
 
 
 def test_diag_extracts_from_square_dataframe(square_psd):
@@ -902,25 +949,25 @@ def test_diag_constructs_from_series():
     (not NaN: an earlier version returned NaN there, which silently
     propagated through any arithmetic that did not go through
     matrix_product's =.fillna(0)= safety net)."""
-    s = pd.Series([1.0, 2.0, 3.0], index=['a', 'b', 'c'])
+    s = pd.Series([1.0, 2.0, 3.0], index=["a", "b", "c"])
     D = utils.diag(s)
     assert D.shape == (3, 3)
-    assert list(D.index) == ['a', 'b', 'c']
-    assert list(D.columns) == ['a', 'b', 'c']
+    assert list(D.index) == ["a", "b", "c"]
+    assert list(D.columns) == ["a", "b", "c"]
 
-    arr = np.asarray(D.sparse.to_dense() if hasattr(D, 'sparse') else D)
+    arr = np.asarray(D.sparse.to_dense() if hasattr(D, "sparse") else D)
     np.testing.assert_allclose(arr, np.diag([1.0, 2.0, 3.0]))
 
 
 def test_diag_series_dense_path():
     """The dense (sparse=False) path used to raise NotImplementedError;
     it now returns a properly-labelled dense DataFrame."""
-    s = pd.Series([1.0, 2.0, 3.0], index=['a', 'b', 'c'])
+    s = pd.Series([1.0, 2.0, 3.0], index=["a", "b", "c"])
     D = utils.diag(s, sparse=False)
     assert isinstance(D, pd.DataFrame)
     np.testing.assert_array_equal(D.values, np.diag([1.0, 2.0, 3.0]))
-    assert list(D.index) == ['a', 'b', 'c']
-    assert list(D.columns) == ['a', 'b', 'c']
+    assert list(D.index) == ["a", "b", "c"]
+    assert list(D.columns) == ["a", "b", "c"]
 
 
 def test_diag_passthrough_for_ndarray():
@@ -941,34 +988,29 @@ def test_sqrtm_rejects_indefinite():
     """An indefinite (non-PSD) input raises ValueError.  An earlier
     implementation inspected singular values (always non-negative)
     rather than eigenvalues, so the guard could never trigger."""
-    bad = pd.DataFrame(np.diag([1.0, -1.0]), index=['a', 'b'],
-                       columns=['a', 'b'])
+    bad = pd.DataFrame(np.diag([1.0, -1.0]), index=["a", "b"], columns=["a", "b"])
     with pytest.raises(ValueError, match="positive semi-definite"):
         utils.sqrtm(bad)
 
 
 def test_sqrtm_tolerates_tiny_negative_eigenvalues():
     """FP noise near the boundary should not trip the PSD guard."""
-    near_psd = pd.DataFrame(np.diag([1.0, 1e-15]),
-                            index=['a', 'b'], columns=['a', 'b'])
+    near_psd = pd.DataFrame(np.diag([1.0, 1e-15]), index=["a", "b"], columns=["a", "b"])
     S = utils.sqrtm(near_psd)
-    np.testing.assert_allclose(S.values @ S.values, near_psd.values,
-                               atol=1e-12)
+    np.testing.assert_allclose(S.values @ S.values, near_psd.values, atol=1e-12)
 
 
 def test_sqrtm_returns_symmetric_root(square_psd):
     """The returned S should be symmetric and satisfy S @ S == A."""
     S = utils.sqrtm(square_psd)
     np.testing.assert_allclose(S.values, S.values.T, atol=1e-10)
-    np.testing.assert_allclose(S.values @ S.values, square_psd.values,
-                               atol=1e-8)
+    np.testing.assert_allclose(S.values @ S.values, square_psd.values, atol=1e-8)
 
 
 def test_cholesky_round_trip(square_psd):
     """L @ L.T should reconstruct A."""
     L = utils.cholesky(square_psd)
-    np.testing.assert_allclose(
-        L.values @ L.values.T, square_psd.values, atol=1e-10)
+    np.testing.assert_allclose(L.values @ L.values.T, square_psd.values, atol=1e-10)
     # Lower triangular: upper-triangular entries are zero.
     upper = L.values - np.tril(L.values)
     np.testing.assert_allclose(upper, 0.0, atol=1e-15)
@@ -977,35 +1019,35 @@ def test_cholesky_round_trip(square_psd):
 
 def test_trim_drops_extremes_to_nan():
     """Values below alpha quantile and above 1-alpha quantile become NaN."""
-    df = pd.DataFrame({'x': np.arange(100, dtype=float)})
+    df = pd.DataFrame({"x": np.arange(100, dtype=float)})
     trimmed = utils.trim(df, alpha=0.1)
     # The bottom 10% (values <= 9.9) and top 10% (values >= 89.1)
     # should be NaN.  Conservative bounds since `where` uses >= /<=.
-    assert trimmed['x'].isna().sum() >= 18
-    finite = trimmed['x'].dropna()
+    assert trimmed["x"].isna().sum() >= 18
+    finite = trimmed["x"].dropna()
     assert finite.min() >= 10
     assert finite.max() <= 89
 
 
 def test_drop_missing_returns_aligned_tuple():
     """Rows with NaN in any input should be dropped from all of them."""
-    df_a = pd.DataFrame({'a': [1.0, np.nan, 3.0, 4.0]})
-    df_b = pd.DataFrame({'b': [10.0, 20.0, 30.0, np.nan]})
+    df_a = pd.DataFrame({"a": [1.0, np.nan, 3.0, 4.0]})
+    df_b = pd.DataFrame({"b": [10.0, 20.0, 30.0, np.nan]})
     Y = utils.drop_missing([df_a, df_b])
     assert isinstance(Y, tuple)
     assert len(Y) == 2
     assert len(Y[0]) == 2  # rows 0 and 2 survive
-    assert list(Y[0]['a'].values) == [1.0, 3.0]
-    assert list(Y[1]['b'].values) == [10.0, 30.0]
+    assert list(Y[0]["a"].values) == [1.0, 3.0]
+    assert list(Y[1]["b"].values) == [10.0, 30.0]
 
 
 def test_drop_missing_dict_form():
     """When called with a dict, the result is a dict with the same keys."""
-    df_a = pd.DataFrame({'a': [1.0, np.nan, 3.0]})
-    df_b = pd.DataFrame({'b': [10.0, 20.0, 30.0]})
-    out = utils.drop_missing({'first': df_a, 'second': df_b})
-    assert set(out.keys()) == {'first', 'second'}
-    assert len(out['first']) == 2 == len(out['second'])
+    df_a = pd.DataFrame({"a": [1.0, np.nan, 3.0]})
+    df_b = pd.DataFrame({"b": [10.0, 20.0, 30.0]})
+    out = utils.drop_missing({"first": df_a, "second": df_b})
+    assert set(out.keys()) == {"first", "second"}
+    assert len(out["first"]) == 2 == len(out["second"])
 
 
 def test_hat_factory_predictions_match_ols(rectangular_full_rank):
@@ -1027,6 +1069,7 @@ def test_hat_factory_predictions_match_ols(rectangular_full_rank):
 # ---------------------------------------------------------------------------
 # Algorithmic tests (heavier than the wrappers above).
 # ---------------------------------------------------------------------------
+
 
 def test_svd_missing_full_data_matches_truncated_svd():
     """With no NaNs, svd_missing should yield the rank-r truncation of
@@ -1066,8 +1109,7 @@ def test_svd_missing_handles_nans():
     # rows with < 3 non-missing entries should land in NaN.
     obs_per_row = (~A_miss.isna()).sum(axis=1)
     enough = obs_per_row >= 3
-    np.testing.assert_array_equal(
-        u.isna().any(axis=1).values, (~enough).values)
+    np.testing.assert_array_equal(u.isna().any(axis=1).values, (~enough).values)
 
 
 def test_svd_missing_symmetric_input_returns_eigendecomposition():
@@ -1099,10 +1141,11 @@ def test_heteropca_recovers_planted_loading():
 
     u, s = utils.heteropca(C, r=1, max_its=200, tol=1e-8)
     assert u.shape == (m, 1)
-    cos = abs((u[:, 0] @ L_true[:, 0]) /
-              (np.linalg.norm(u[:, 0]) * np.linalg.norm(L_true[:, 0])))
-    assert cos > 0.98, (
-        f"HeteroPCA loading cosine to truth = {cos:.4f}; expected >0.98.")
+    cos = abs(
+        (u[:, 0] @ L_true[:, 0])
+        / (np.linalg.norm(u[:, 0]) * np.linalg.norm(L_true[:, 0]))
+    )
+    assert cos > 0.98, f"HeteroPCA loading cosine to truth = {cos:.4f}; expected >0.98."
 
 
 def test_factor_analysis_eig_recovers_planted_loading():
@@ -1110,6 +1153,7 @@ def test_factor_analysis_eig_recovers_planted_loading():
     recover a planted rank-1 loading direction.  Uses a large N to push
     cosine similarity above 0.95."""
     from metrics_miscellany import estimators
+
     rng = np.random.default_rng(4)
     n_features, N = 6, 5000
     L_true = rng.standard_normal((n_features, 1))
@@ -1118,13 +1162,12 @@ def test_factor_analysis_eig_recovers_planted_loading():
     X = pd.DataFrame(F_true @ L_true.T + noise)
 
     W, psi = estimators.factor_analysis(
-        X, n_components=1, max_its=500, tol=1e-6, svd_method='eig')
+        X, n_components=1, max_its=500, tol=1e-6, svd_method="eig"
+    )
     W_flat = np.asarray(W).reshape(-1)
     L_flat = L_true.reshape(-1)
-    cos = abs((W_flat @ L_flat) /
-              (np.linalg.norm(W_flat) * np.linalg.norm(L_flat)))
-    assert cos > 0.95, (
-        f"factor_analysis cosine to truth = {cos:.4f}; expected >0.95.")
+    cos = abs((W_flat @ L_flat) / (np.linalg.norm(W_flat) * np.linalg.norm(L_flat)))
+    assert cos > 0.95, f"factor_analysis cosine to truth = {cos:.4f}; expected >0.95."
     # psi (idiosyncratic variances) must be positive.
     assert np.all(np.asarray(psi) > 0)
     assert len(np.asarray(psi)) == n_features
@@ -1134,12 +1177,13 @@ def test_factor_analysis_unfinished_branches_raise():
     """The 'lapack' and 'randomized' svd_method branches are gated;
     confirm they raise instead of silently NameError'ing."""
     from metrics_miscellany import estimators
+
     rng = np.random.default_rng(5)
     X = pd.DataFrame(rng.standard_normal((20, 3)))
     with pytest.raises(NotImplementedError, match="lapack"):
-        estimators.factor_analysis(X, svd_method='lapack')
+        estimators.factor_analysis(X, svd_method="lapack")
     with pytest.raises(NotImplementedError, match="randomized"):
-        estimators.factor_analysis(X, svd_method='randomized')
+        estimators.factor_analysis(X, svd_method="randomized")
 
 
 def test_heteropca_warns_instead_of_raising_on_max_its(square_psd):
@@ -1153,16 +1197,15 @@ def test_heteropca_warns_instead_of_raising_on_max_its(square_psd):
         utils.heteropca(square_psd, r=1, max_its=1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     rng = np.random.default_rng(0)
     A = rng.standard_normal((5, 5))
     M = A @ A.T + np.eye(5)
-    labels = list('abcde')
+    labels = list("abcde")
     square = pd.DataFrame(M, index=labels, columns=labels)
     test_svd_round_trip(square)
     test_cholesky_round_trip(square)
     print("smoke OK")
-
 #+end_src
 * Estimators
 ** Preliminaries
@@ -1172,15 +1215,14 @@ from numpy.linalg import lstsq
 import warnings
 import pandas as pd
 from . import gmm
-from . GMM_class import GMM
+from .GMM_class import GMM
 from . import utils
 from datamat import DataMat, DataVec
 import datamat as dm
 #+end_src
 ** OLS
 #+begin_src python :tangle metrics_miscellany/estimators.py
-
-def ols(X,y,cov_type='HC3',PSD_COV=False):
+def ols(X, y, cov_type="HC3", PSD_COV=False):
     """OLS estimator of b in y = Xb + u.
 
     Returns both estimate b as well as an estimate of Var(b).
@@ -1193,35 +1235,37 @@ def ols(X,y,cov_type='HC3',PSD_COV=False):
     set to a positive float, then this will be taken to be the smallest eigenvalue
     of the 'corrected' matrix.
     """
-    n,k = X.shape
+    n, k = X.shape
 
     Xv = np.asarray(X)
     yv = np.asarray(y).ravel()
 
-    b_vals,_,_,_ = np.linalg.lstsq(Xv, yv, rcond=None)
-    b = pd.DataFrame({'Coefficients': b_vals}, index=X.columns)
+    b_vals, _, _, _ = np.linalg.lstsq(Xv, yv, rcond=None)
+    b = pd.DataFrame({"Coefficients": b_vals}, index=X.columns)
     e = yv - Xv @ b_vals
 
     XX = Xv.T @ Xv
     XXinv = np.linalg.inv(XX)
 
-    if cov_type == 'OLS':
+    if cov_type == "OLS":
         if np.linalg.eigh(XX)[0].min() < 0:
             s_xx, U_xx = np.linalg.eigh((XX + XX.T) / 2)
             XX = U_xx @ np.diag(np.maximum(s_xx, 1e-12)) @ U_xx.T
             XXinv = np.linalg.inv(XX)
-            warnings.warn("X'X not positive (semi-) definite.  Correcting!  Estimated variances should not be affected.")
+            warnings.warn(
+                "X'X not positive (semi-) definite.  Correcting!  Estimated variances should not be affected."
+            )
         V = np.var(e, ddof=0) * XXinv
-    elif cov_type in ('HC0', 'HC1', 'HC2', 'HC3'):
-        h = np.einsum('ij,jk,ik->i', Xv, XXinv, Xv)  # hat matrix diagonal
-        if cov_type == 'HC0':
-            w = e ** 2
-        elif cov_type == 'HC1':
-            w = e ** 2 * (n / (n - k))
-        elif cov_type == 'HC2':
-            w = e ** 2 / (1 - h)
-        elif cov_type == 'HC3':
-            w = e ** 2 / (1 - h) ** 2
+    elif cov_type in ("HC0", "HC1", "HC2", "HC3"):
+        h = np.einsum("ij,jk,ik->i", Xv, XXinv, Xv)  # hat matrix diagonal
+        if cov_type == "HC0":
+            w = e**2
+        elif cov_type == "HC1":
+            w = e**2 * (n / (n - k))
+        elif cov_type == "HC2":
+            w = e**2 / (1 - h)
+        elif cov_type == "HC3":
+            w = e**2 / (1 - h) ** 2
         V = XXinv @ (Xv.T * w) @ Xv @ XXinv
     else:
         raise ValueError("Unknown type of covariance matrix.")
@@ -1229,16 +1273,18 @@ def ols(X,y,cov_type='HC3',PSD_COV=False):
     if PSD_COV:
         if PSD_COV is True:
             PSD_COV = (b**2).min()
-        s,U = np.linalg.eigh((V+V.T)/2)
-        if s.min()<PSD_COV:
+        s, U = np.linalg.eigh((V + V.T) / 2)
+        if s.min() < PSD_COV:
             oldV = V
-            V = U@np.diag(np.maximum(s,PSD_COV))@U.T
-            warnings.warn("Estimated covariance matrix not positive (semi-) definite.\nCorrecting! Norm of difference is %g." % np.linalg.norm(oldV-V))
+            V = U @ np.diag(np.maximum(s, PSD_COV)) @ U.T
+            warnings.warn(
+                "Estimated covariance matrix not positive (semi-) definite.\nCorrecting! Norm of difference is %g."
+                % np.linalg.norm(oldV - V)
+            )
 
-    V = pd.DataFrame(V,index=X.columns,columns=X.columns)
+    V = pd.DataFrame(V, index=X.columns, columns=X.columns)
 
-    return b,V
-
+    return b, V
 #+end_src
 
 *** OLS Tests
@@ -1247,27 +1293,28 @@ import pandas as pd
 from metrics_miscellany.estimators import ols
 import numpy as np
 
-def test_ols(N=500000,tol=1e-2):
 
-    x = pd.DataFrame({'x':np.random.standard_normal((N,))})
-    x['Constant'] = 1
+def test_ols(N=500000, tol=1e-2):
 
-    beta = pd.DataFrame({'Coefficients':[1,0]},index=['x','Constant'])
+    x = pd.DataFrame({"x": np.random.standard_normal((N,))})
+    x["Constant"] = 1
 
-    u = pd.DataFrame(np.random.standard_normal((N,))/10)
+    beta = pd.DataFrame({"Coefficients": [1, 0]}, index=["x", "Constant"])
 
-    y = (x@beta).values + u.values
-    b,V = ols(x,y)
+    u = pd.DataFrame(np.random.standard_normal((N,)) / 10)
 
-    assert np.allclose(b,beta,atol=tol)
+    y = (x @ beta).values + u.values
+    b, V = ols(x, y)
 
-if __name__=='__main__':
+    assert np.allclose(b, beta, atol=tol)
+
+
+if __name__ == "__main__":
     test_ols()
-
 #+end_src
 ** Two-stage Least Squares
 #+begin_src python :tangle metrics_miscellany/estimators.py
-def restricted_tsls(y, X, R=None, r=None, Z=None, cov='HC3'):
+def restricted_tsls(y, X, R=None, r=None, Z=None, cov="HC3"):
     """
     Estimate b in y = Xb + u subject to Rb = r.
 
@@ -1314,19 +1361,19 @@ def restricted_tsls(y, X, R=None, r=None, Z=None, cov='HC3'):
         m, _k = R.shape
         assert _k == k, (
             "Matrix of restrictions must be conformable with the vector "
-            "of parameters.")
+            "of parameters."
+        )
         if r is None:
             raise ValueError("r must be supplied when R is supplied.")
         r_vec = np.asarray(r).reshape(-1)
-        assert r_vec.shape[0] == m, (
-            "r and R must agree on the number of restrictions.")
+        assert r_vec.shape[0] == m, "r and R must agree on the number of restrictions."
     else:
         m = 0
         r_vec = None
 
     assert _l + m >= k, (
-        f"Need #instruments ({_l}) + #restrictions ({m}) >= "
-        f"#parameters ({k}).")
+        f"Need #instruments ({_l}) + #restrictions ({m}) >= " f"#parameters ({k})."
+    )
 
     Qzz = Z.T @ Z / N
     Qxz = X.T @ Z / N
@@ -1349,20 +1396,19 @@ def restricted_tsls(y, X, R=None, r=None, Z=None, cov='HC3'):
         lhs_arr[k:, :k] = Rv
         rhs_arr = np.concatenate([np.asarray(rhs_b).reshape(-1), r_vec])
         sol = np.linalg.solve(lhs_arr, rhs_arr)
-        b = pd.Series(sol[:k], index=param_labels, name='Coefficients')
-        lm = pd.Series(sol[k:], index=R.index, name='lm')
+        b = pd.Series(sol[:k], index=param_labels, name="Coefficients")
+        lm = pd.Series(sol[k:], index=R.index, name="lm")
     else:
-        b_arr = np.linalg.solve(np.asarray(Q),
-                                np.asarray(rhs_b).reshape(-1))
-        b = pd.Series(b_arr, index=param_labels, name='Coefficients')
+        b_arr = np.linalg.solve(np.asarray(Q), np.asarray(rhs_b).reshape(-1))
+        b = pd.Series(b_arr, index=param_labels, name="Coefficients")
         lm = None
 
     # Residuals using X alone -- the restrictions add no observations.
     e = y - X @ b
 
-    if cov in ('HC2', 'HC3'):
+    if cov in ("HC2", "HC3"):
         h = utils.leverage(X)
-        if cov == 'HC2':
+        if cov == "HC2":
             e = e / np.sqrt(1 - h)
         else:
             e = e / (1 - h)
@@ -1382,12 +1428,11 @@ def restricted_tsls(y, X, R=None, r=None, Z=None, cov='HC3'):
         V_unr_v = np.asarray(V_unr)
         middle = np.linalg.inv(Rv @ V_unr_v @ Rv.T)
         P = np.eye(k) - V_unr_v @ Rv.T @ middle @ Rv
-        V_b = pd.DataFrame(P @ V_unr_v @ P.T,
-                           index=param_labels, columns=param_labels)
+        V_b = pd.DataFrame(P @ V_unr_v @ P.T, index=param_labels, columns=param_labels)
     else:
         V_b = V_unr
 
-    if cov == 'HC1':
+    if cov == "HC1":
         V_b = V_b * (N / (N - k))
 
     if R is None:
@@ -1396,17 +1441,16 @@ def restricted_tsls(y, X, R=None, r=None, Z=None, cov='HC3'):
 #+end_src
 
 #+begin_src python :tangle metrics_miscellany/estimators.py
-def tsls(X,y,Z,return_Omega=False,**kwargs):
+def tsls(X, y, Z, return_Omega=False, **kwargs):
     """
     Two-stage least squares estimator.
     """
-    b,Omega,Vb = restricted_tsls(y,X,Z=Z,**kwargs)
+    b, Omega, Vb = restricted_tsls(y, X, Z=Z, **kwargs)
 
     if return_Omega:
-        return b,Omega
+        return b, Omega
     else:
-        return b,Vb
-
+        return b, Vb
 #+end_src
 *** TSLS Tests
 #+begin_src python :tangle metrics_miscellany/test/test_tsls.py
@@ -1415,36 +1459,37 @@ from metrics_miscellany.estimators import tsls, ols, restricted_tsls
 from datamat import DataMat, DataVec
 import numpy as np
 
-def test_tsls(N=500000,tol=1e-2):
 
-    z = DataMat({'z':np.random.standard_normal((N,))})
+def test_tsls(N=500000, tol=1e-2):
+
+    z = DataMat({"z": np.random.standard_normal((N,))})
     u = DataVec(np.random.standard_normal((N,)))
-    x = DataMat({'x':z.squeeze() + u})
+    x = DataMat({"x": z.squeeze() + u})
 
-    x['Constant'] = 1
-    z['Constant'] = 1
+    x["Constant"] = 1
+    z["Constant"] = 1
 
-    beta = DataMat({'Coefficients':[1,0]},index=['x','Constant'])
+    beta = DataMat({"Coefficients": [1, 0]}, index=["x", "Constant"])
 
-    y = (x@beta).squeeze() + u
+    y = (x @ beta).squeeze() + u
 
-    b,Omega,V = restricted_tsls(y,x,Z=z)
-    b_,V_ = tsls(x,y,z)
-    #b,V = ols(x,y)
+    b, Omega, V = restricted_tsls(y, x, Z=z)
+    b_, V_ = tsls(x, y, z)
+    # b,V = ols(x,y)
 
-    assert np.allclose(b,beta.squeeze(),atol=tol)
+    assert np.allclose(b, beta.squeeze(), atol=tol)
 
-    #return b,V,b_,V_
+    # return b,V,b_,V_
 
 
 def _make_iv_dgp(N, seed):
     rng = np.random.default_rng(seed)
-    z = DataMat({'z': rng.standard_normal(N)})
+    z = DataMat({"z": rng.standard_normal(N)})
     u = DataVec(rng.standard_normal(N))
-    x = DataMat({'x': z.squeeze() + u})
-    x['Constant'] = 1
-    z['Constant'] = 1
-    beta = DataMat({'Coefficients': [1., 0.]}, index=['x', 'Constant'])
+    x = DataMat({"x": z.squeeze() + u})
+    x["Constant"] = 1
+    z["Constant"] = 1
+    beta = DataMat({"Coefficients": [1.0, 0.0]}, index=["x", "Constant"])
     y = (x @ beta).squeeze() + u
     return y, x, z
 
@@ -1456,25 +1501,26 @@ def test_restricted_tsls_satisfying_constraint():
     restricted direction."""
     y, x, z = _make_iv_dgp(N=200_000, seed=0)
 
-    R = DataMat([[0., 1.]], columns=['x', 'Constant'], index=['c0'])
-    r = DataVec([0.], index=['c0'])
+    R = DataMat([[0.0, 1.0]], columns=["x", "Constant"], index=["c0"])
+    r = DataVec([0.0], index=["c0"])
     b, lm, Omega, V = restricted_tsls(y, x, R=R, r=r, Z=z)
 
     # The restriction is satisfied exactly:
-    np.testing.assert_allclose(b['Constant'], 0., atol=1e-12)
+    np.testing.assert_allclose(b["Constant"], 0.0, atol=1e-12)
     # The free coefficient recovers the truth (sampling noise only):
-    np.testing.assert_allclose(b['x'], 1., atol=2e-2)
+    np.testing.assert_allclose(b["x"], 1.0, atol=2e-2)
+
     # Output shapes / labels survive the restricted branch (DataMat may
     # wrap flat labels as 1-tuples; flatten before comparing).
     def _flat(idx):
-        return [t[0] if isinstance(t, tuple) and len(t) == 1 else t
-                for t in idx]
-    assert _flat(b.index) == ['x', 'Constant']
-    assert _flat(lm.index) == ['c0']
-    assert _flat(V.index) == ['x', 'Constant']
-    assert _flat(V.columns) == ['x', 'Constant']
+        return [t[0] if isinstance(t, tuple) and len(t) == 1 else t for t in idx]
+
+    assert _flat(b.index) == ["x", "Constant"]
+    assert _flat(lm.index) == ["c0"]
+    assert _flat(V.index) == ["x", "Constant"]
+    assert _flat(V.columns) == ["x", "Constant"]
     # Variance along the restricted direction is zero (up to FP noise):
-    np.testing.assert_allclose(V.loc['Constant', 'Constant'], 0., atol=1e-12)
+    np.testing.assert_allclose(V.loc["Constant", "Constant"], 0.0, atol=1e-12)
 
 
 def test_restricted_tsls_binding_constraint():
@@ -1482,11 +1528,11 @@ def test_restricted_tsls_binding_constraint():
     equals the constraint value exactly."""
     y, x, z = _make_iv_dgp(N=1_000, seed=1)
 
-    R = DataMat([[1., 0.]], columns=['x', 'Constant'], index=['c0'])
-    r = DataVec([0.5], index=['c0'])
+    R = DataMat([[1.0, 0.0]], columns=["x", "Constant"], index=["c0"])
+    r = DataVec([0.5], index=["c0"])
     b, lm, Omega, V = restricted_tsls(y, x, R=R, r=r, Z=z)
 
-    np.testing.assert_allclose(b['x'], 0.5, atol=1e-12)
+    np.testing.assert_allclose(b["x"], 0.5, atol=1e-12)
 
 
 def test_restricted_tsls_matches_unrestricted_when_R_None():
@@ -1499,12 +1545,11 @@ def test_restricted_tsls_matches_unrestricted_when_R_None():
     np.testing.assert_allclose(b1.values, b2.values, atol=1e-12)
 
 
-if __name__=='__main__':
+if __name__ == "__main__":
     test_tsls()
     test_restricted_tsls_satisfying_constraint()
     test_restricted_tsls_binding_constraint()
     test_restricted_tsls_matches_unrestricted_when_R_None()
-
 #+end_src
 *** Independence from DataMat's attribute spellings
 DataMat 0.2.4 converted =inv=, =pinv=, =det=, =trace= and =leverage= from
@@ -1542,25 +1587,24 @@ def methods_only(monkeypatch):
     for name in CONVERTED:
         attr = datamat_core.DataMat.__dict__.get(name)
         if isinstance(attr, functools.cached_property):
-            monkeypatch.setattr(datamat_core.DataMat, name, attr.func,
-                                raising=False)
+            monkeypatch.setattr(datamat_core.DataMat, name, attr.func, raising=False)
     return datamat_core.DataMat
 
 
 def _iv_dgp(N=2000, seed=0):
     rng = np.random.default_rng(seed)
-    z = DataMat({'z': rng.standard_normal(N)})
+    z = DataMat({"z": rng.standard_normal(N)})
     u = DataVec(rng.standard_normal(N))
-    x = DataMat({'x': z.squeeze() + u})
-    x['Constant'] = 1
-    z['Constant'] = 1
-    beta = DataMat({'Coefficients': [1., 0.]}, index=['x', 'Constant'])
+    x = DataMat({"x": z.squeeze() + u})
+    x["Constant"] = 1
+    z["Constant"] = 1
+    beta = DataMat({"Coefficients": [1.0, 0.0]}, index=["x", "Constant"])
     y = (x @ beta).squeeze() + u
     return y, x, z
 
 
 def test_fixture_really_installs_methods(methods_only):
-    X = DataMat(np.eye(2) + np.ones((2, 2)), idxnames='i')
+    X = DataMat(np.eye(2) + np.ones((2, 2)), idxnames="i")
     assert callable(X.inv), "fixture did not convert inv to a method"
 
 
@@ -1569,19 +1613,19 @@ def test_tsls_runs_with_method_spelling(methods_only, cov):
     """Covers the leverage path too: HC2/HC3 are what consume it."""
     y, x, z = _iv_dgp()
     b, Omega, V = restricted_tsls(y, x, Z=z, cov=cov)
-    assert np.allclose(np.asarray(b).ravel(), [1., 0.], atol=1e-1)
+    assert np.allclose(np.asarray(b).ravel(), [1.0, 0.0], atol=1e-1)
 
 
 def test_tsls_wrapper_runs_with_method_spelling(methods_only):
     y, x, z = _iv_dgp()
     b, V = tsls(x, y, z)
-    assert np.allclose(np.asarray(b).ravel(), [1., 0.], atol=1e-1)
+    assert np.allclose(np.asarray(b).ravel(), [1.0, 0.0], atol=1e-1)
 
 
 def test_linear_gmm_runs_with_method_spelling(methods_only):
     y, x, z = _iv_dgp()
     b = linear_gmm(x, y, z)[0]
-    assert np.allclose(np.asarray(b).ravel(), [1., 0.], atol=1e-1)
+    assert np.allclose(np.asarray(b).ravel(), [1.0, 0.0], atol=1e-1)
 
 
 def test_cragg_donald_runs_with_method_spelling(methods_only):
@@ -1594,16 +1638,21 @@ def test_cragg_donald_runs_with_method_spelling(methods_only):
     assert np.isfinite(s) and 0.0 <= float(pval) <= 1.0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     pytest.main([__file__])
 #+end_src
 
 ** Factor Analysis (MLE)
 This routine adapted from sklearn's FactorAnalysis, but modified to permit missing values.
 #+begin_src python :tangle metrics_miscellany/estimators.py
-def factor_analysis(X,n_components=None,noise_variance_init=None,
-                    max_its=1000,tol=1e-2,
-                    svd_method='eig'):
+def factor_analysis(
+    X,
+    n_components=None,
+    noise_variance_init=None,
+    max_its=1000,
+    tol=1e-2,
+    svd_method="eig",
+):
     """Fit the FactorAnalysis model to X using SVD based MLE approach.
 
     Parameters
@@ -1633,9 +1682,9 @@ def factor_analysis(X,n_components=None,noise_variance_init=None,
     else:
         if len(noise_variance_init) != n_features:
             raise ValueError(
-                    "noise_variance_init dimension does not accord "
-                    "with number of features : %d != %d"
-                    % (len(noise_variance_init), n_features)
+                "noise_variance_init dimension does not accord "
+                "with number of features : %d != %d"
+                % (len(noise_variance_init), n_features)
             )
         psi = np.array(noise_variance_init)
 
@@ -1644,29 +1693,29 @@ def factor_analysis(X,n_components=None,noise_variance_init=None,
     SMALL = 1e-12
 
     def squared_norm(x):
-        return np.linalg.norm(x)**2
+        return np.linalg.norm(x) ** 2
 
-    def self_inner(X,min_obs=None):
+    def self_inner(X, min_obs=None):
         """Compute inner product X.T@X, allowing for possibility of missing data."""
-        n,m=X.shape
+        n, m = X.shape
 
-        if n<m:
-            axis=1
-            N=m
+        if n < m:
+            axis = 1
+            N = m
         else:
-            axis=0
-            N=n
+            axis = 0
+            N = n
 
         mX = np.ma.masked_invalid(X)
 
-        xbar = np.mean(mX,axis=axis)
+        xbar = np.mean(mX, axis=axis)
 
         if axis:
-            C=(N-1)*np.ma.cov(mX)
+            C = (N - 1) * np.ma.cov(mX)
         else:
-            C=(N-1)*np.ma.cov(mX.T)
+            C = (N - 1) * np.ma.cov(mX.T)
 
-        return (C + N*np.outer(xbar,xbar)).data
+        return (C + N * np.outer(xbar, xbar)).data
 
     # we'll modify svd outputs to return unexplained variance
     # to allow for unified computation of loglikelihood
@@ -1676,35 +1725,37 @@ def factor_analysis(X,n_components=None,noise_variance_init=None,
         # caller what to do instead of NameError'ing partway through.
         raise NotImplementedError(
             "factor_analysis(svd_method='lapack') is unfinished. "
-            "Use svd_method='eig'.")
+            "Use svd_method='eig'."
+        )
 
     elif svd_method == "randomized":
         # Likewise: the branch references self.random_state /
         # self.iterated_power, which don't exist in this free function.
         raise NotImplementedError(
             "factor_analysis(svd_method='randomized') is unfinished. "
-            "Use svd_method='eig'.")
+            "Use svd_method='eig'."
+        )
 
-    elif svd_method == 'eig':
+    elif svd_method == "eig":
 
         def my_svd(P):
 
-            sigmas,v=np.linalg.eigh(P)
+            sigmas, v = np.linalg.eigh(P)
             vt = v.T
 
-            order=np.argsort(-sigmas)
-            sigmas=sigmas[order]
+            order = np.argsort(-sigmas)
+            sigmas = sigmas[order]
 
             # Truncate rank of representation using Kaiser criterion (positive eigenvalues)
-            vt=vt[order,:]
-            vt=vt[sigmas>0,:]
-            s=np.sqrt(sigmas[sigmas>0])
+            vt = vt[order, :]
+            vt = vt[sigmas > 0, :]
+            s = np.sqrt(sigmas[sigmas > 0])
 
             if n_components is not None and len(s) > n_components:
-                vt=vt[:n_components,:]
-                s=s[:n_components]
+                vt = vt[:n_components, :]
+                s = s[:n_components]
 
-            r=len(s)
+            r = len(s)
 
             return s, vt, squared_norm(P) - squared_norm(s)
 
@@ -1712,12 +1763,12 @@ def factor_analysis(X,n_components=None,noise_variance_init=None,
     for i in range(max_its):
         # SMALL helps numerics
         sqrt_psi = np.sqrt(psi) + SMALL
-        s, Vt, unexp_var = my_svd(P@np.diag(1/(psi * n_samples)))
+        s, Vt, unexp_var = my_svd(P @ np.diag(1 / (psi * n_samples)))
         s **= 2
         # Use 'maximum' here to avoid sqrt problems.
         W = np.sqrt(np.maximum(s - 1.0, 0.0))[:, np.newaxis] * Vt
         del Vt
-        W = W.squeeze()*sqrt_psi
+        W = W.squeeze() * sqrt_psi
 
         # loglikelihood
         ll = llconst + np.sum(np.log(s))
@@ -1741,7 +1792,6 @@ def factor_analysis(X,n_components=None,noise_variance_init=None,
         )
 
     return W, psi
-
 #+end_src
 
 
@@ -1799,51 +1849,55 @@ def factor_analysis(V,r=1,psi=None,method='mle',tol=1e-12):
 #+end_src
 ** Frisch-Waugh-Lovell Regression
 #+begin_src python :tangle metrics_miscellany/estimators.py
-def fwl_regression_step(D,X):
+def fwl_regression_step(D, X):
     """Regress each datamat in dictionary D on X.
-       Return a dictionary of residuals, and a dictionary of least-squares coefficients.
+    Return a dictionary of residuals, and a dictionary of least-squares coefficients.
     """
     b = {}
     u = {}
-    if len(D)==0: return D,{}
+    if len(D) == 0:
+        return D, {}
 
-    for k,v in D.items():
+    for k, v in D.items():
         b[k] = X.lstsq(v)
         u[k] = dm.DataMat(v.resid(X))
 
-    return u,b
+    return u, b
 #+end_src
 
 #+begin_src python :tangle metrics_miscellany/estimators.py
-def fwl_regression(D,B=None,U=None):
+def fwl_regression(D, B=None, U=None):
     """Regress each datamat in dictionary D on the last element X of D.
-       Iterate.
+    Iterate.
 
-       Return a dictionary of residuals, and a dictionary of least-squares coefficients.
+    Return a dictionary of residuals, and a dictionary of least-squares coefficients.
     """
-    if B is None: B={}
-    if U is None: U={}
+    if B is None:
+        B = {}
+    if U is None:
+        U = {}
 
-    if len(D)==0:
-        return {},{}
-    elif len(D)==1:
-        return U,B
+    if len(D) == 0:
+        return {}, {}
+    elif len(D) == 1:
+        return U, B
     else:
-        xk,x = D.popitem()
-        D,B[xk] = fwl_regression_step(D,x)
+        xk, x = D.popitem()
+        D, B[xk] = fwl_regression_step(D, x)
         U[xk] = D.copy()
-        return fwl_regression(D,B=B,U=U)
+        return fwl_regression(D, B=B, U=U)
 #+end_src
 
 #+begin_src python :tangle metrics_miscellany/estimators.py
-def reconstruct_coefficients_from_fwl(B: dict,as_dict=False):
+def reconstruct_coefficients_from_fwl(B: dict, as_dict=False):
     """
     Reconstructs OLS coefficient vectors from FWL inputs,
     generalized for matrix regressors.
     """
     # ## 1. Infer the dependent variable name ##
     top_level_keys = set(B.keys())
-    if len(top_level_keys)==0: return {}
+    if len(top_level_keys) == 0:
+        return {}
 
     # Arbitrarily pick the first variable's sub-dictionary to inspect its keys
     first_var_key = next(iter(B))
@@ -1879,13 +1933,12 @@ def reconstruct_coefficients_from_fwl(B: dict,as_dict=False):
         coeffs[current_var].name = dep_var_name
 
     # Reverse order of dict
-    coeffs = {k:coeffs[k] for k in reversed(list(coeffs.keys()))}
+    coeffs = {k: coeffs[k] for k in reversed(list(coeffs.keys()))}
 
     if as_dict:
         return coeffs
     else:
-        return dm.concat(coeffs,levelnames=True).squeeze()
-
+        return dm.concat(coeffs, levelnames=True).squeeze()
 #+end_src
 
 
@@ -1897,8 +1950,12 @@ Here are unit tests for both functions:
 import unittest
 import numpy as np
 import pandas as pd
-from metrics_miscellany.estimators import fwl_regression, reconstruct_coefficients_from_fwl
+from metrics_miscellany.estimators import (
+    fwl_regression,
+    reconstruct_coefficients_from_fwl,
+)
 import datamat as dm
+
 
 class TestFWLRegression(unittest.TestCase):
     def setUp(self):
@@ -1908,10 +1965,18 @@ class TestFWLRegression(unittest.TestCase):
         N = 1000
 
         D = {}
-        D['Constant'] = dm.DataMat(np.ones(N))
-        D['a'] = dm.DataMat(np.random.randn(N,2))
-        D['b'] = D['a']*2 + np.random.randn(N,2)
-        D['y'] = dm.DataMat(D['a']@np.array((1,1)) + + D['b']@np.array((2,2)) + np.random.randn(N,)/1000,name='y')
+        D["Constant"] = dm.DataMat(np.ones(N))
+        D["a"] = dm.DataMat(np.random.randn(N, 2))
+        D["b"] = D["a"] * 2 + np.random.randn(N, 2)
+        D["y"] = dm.DataMat(
+            D["a"] @ np.array((1, 1))
+            + +D["b"] @ np.array((2, 2))
+            + np.random.randn(
+                N,
+            )
+            / 1000,
+            name="y",
+        )
 
         # Reverse order of dict
         D = dict([D.popitem() for i in range(len(D))])
@@ -1919,9 +1984,9 @@ class TestFWLRegression(unittest.TestCase):
         self.D = D
 
         # Direct OLS for comparison
-        YX = dm.concat(D,levelnames=True,axis=1)
-        Y = YX.xs('y',level='v',axis=1,drop_level=False)
-        X = YX.iloc[:,1:]
+        YX = dm.concat(D, levelnames=True, axis=1)
+        Y = YX.xs("y", level="v", axis=1, drop_level=False)
+        X = YX.iloc[:, 1:]
 
         self.direct_coefs = X.lstsq(Y)
 
@@ -1935,9 +2000,9 @@ class TestFWLRegression(unittest.TestCase):
         # Test that the last stage regression gives correct coefficients
         # The last variable (X3) should have the coefficient of Y on X3 after controlling for X1, X2
         # Reconstruct coefficients
-        reconstructed = reconstruct_coefficients_from_fwl(B,as_dict=False)
+        reconstructed = reconstruct_coefficients_from_fwl(B, as_dict=False)
 
-        np.testing.assert_allclose(reconstructed-self.direct_coefs,0,atol=1e-2)
+        np.testing.assert_allclose(reconstructed - self.direct_coefs, 0, atol=1e-2)
 
     def test_reconstruct_coefficients(self):
         # Run FWL regression and ask reconstruct_coefficients_from_fwl for
@@ -1951,8 +2016,7 @@ class TestFWLRegression(unittest.TestCase):
 
         # The dict output's keys are the regressors (everything in D
         # except the dependent variable).
-        self.assertEqual(set(reconstructed_dict.keys()),
-                         set(self.D.keys()) - {'y'})
+        self.assertEqual(set(reconstructed_dict.keys()), set(self.D.keys()) - {"y"})
 
         # Total parameter count is preserved across the two output forms.
         total = sum(len(v) for v in reconstructed_dict.values())
@@ -1970,15 +2034,16 @@ class TestFWLRegression(unittest.TestCase):
 
     def test_single_variable(self):
         # Test with a single variable
-        D_single = {'y': self.D['y']}
+        D_single = {"y": self.D["y"]}
         U, B = fwl_regression(D_single)
         self.assertEqual(U, {})
         self.assertEqual(B, {})
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     foo = TestFWLRegression()
     foo.setUp()
-    #foo.test_fwl_regression()
+    # foo.test_fwl_regression()
     unittest.main()
 #+end_src
 
@@ -1986,40 +2051,39 @@ if __name__ == '__main__':
 
 ** Linear GMM
 #+begin_src python :tangle metrics_miscellany/estimators.py
-def linear_gmm(X,y,Z,W=None,return_Omega=False):
+def linear_gmm(X, y, Z, W=None, return_Omega=False):
     """
     Linear GMM estimator.
     """
 
-    if W is None: # Use 2sls to get initial estimate of W
-        b1,Omega1 = tsls(X,y,Z,return_Omega=True)
+    if W is None:  # Use 2sls to get initial estimate of W
+        b1, Omega1 = tsls(X, y, Z, return_Omega=True)
         W = utils.inv(Omega1)
         # Forward return_Omega through the recursive call so callers asking
         # for Omega on a default-W invocation actually receive it.
-        return linear_gmm(X,y,Z,W=W,return_Omega=return_Omega)
+        return linear_gmm(X, y, Z, W=W, return_Omega=return_Omega)
     else:
-        n,k = X.shape
+        n, k = X.shape
 
-        Qxz = X.T@Z/n
+        Qxz = X.T @ Z / n
 
-        b = lstsq(Qxz@W@Qxz.T,Qxz@W@Z.T@y/n,rcond=None)[0]
+        b = lstsq(Qxz @ W @ Qxz.T, Qxz @ W @ Z.T @ y / n, rcond=None)[0]
 
-        b = pd.Series(b.squeeze(),index=X.columns)
+        b = pd.Series(b.squeeze(), index=X.columns)
 
         # Cov matrix
-        e = y.squeeze() - X@b
+        e = y.squeeze() - X @ b
 
-        #Omega = Z.T@(e**2).dg()@Z/n
+        # Omega = Z.T@(e**2).dg()@Z/n
         # Rather than forming even a sparse nxn matrix, just use element-by-element multiplication
         ZTe = Z.T.multiply(e)
-        Omega = ZTe@ZTe.T/n
+        Omega = ZTe @ ZTe.T / n
 
         if return_Omega:
-            return b,Omega
+            return b, Omega
         else:
-            Vb = utils.inv(Qxz@utils.inv(Omega)@Qxz.T)/n
-            return b,Vb
-
+            Vb = utils.inv(Qxz @ utils.inv(Omega) @ Qxz.T) / n
+            return b, Vb
 #+end_src
 *** Linear GMM Tests
 #+begin_src python :tangle metrics_miscellany/test/test_linear_gmm.py
@@ -2028,27 +2092,27 @@ from metrics_miscellany.estimators import linear_gmm
 from datamat import DataMat, DataVec
 import numpy as np
 
-def test_linear_gmm(N=500000,tol=1e-2):
 
-    z = DataMat(np.random.standard_normal((N,2)),columns=['z1','z2'])
+def test_linear_gmm(N=500000, tol=1e-2):
+
+    z = DataMat(np.random.standard_normal((N, 2)), columns=["z1", "z2"])
     u = DataVec(np.random.standard_normal((N,)))
-    x = DataMat({'x':z.sum(axis=1) + u})
+    x = DataMat({"x": z.sum(axis=1) + u})
 
-    x['Constant'] = 1
-    z['Constant'] = 1
+    x["Constant"] = 1
+    z["Constant"] = 1
 
-    beta = DataMat({'Coefficients':[1,0]},index=['x','Constant'])
+    beta = DataMat({"Coefficients": [1, 0]}, index=["x", "Constant"])
 
-    y = (x@beta).squeeze() + u
+    y = (x @ beta).squeeze() + u
 
-    b,V = linear_gmm(x,y,z)
+    b, V = linear_gmm(x, y, z)
 
-    assert np.allclose(b,beta.squeeze(),atol=tol)
+    assert np.allclose(b, beta.squeeze(), atol=tol)
 
 
-if __name__=='__main__':
+if __name__ == "__main__":
     test_linear_gmm()
-
 #+end_src
 
 ** Linear GMM with Linear Restrictions
@@ -2061,9 +2125,7 @@ def restricted_linear_gmm(X, y, Z, R, r, W=None, return_Omega=False):
     copy-paste of =linear_gmm= sitting underneath =raise NotImplementedError=;
     it has been removed to keep the function honest.
     """
-    raise NotImplementedError(
-        "restricted_linear_gmm has not yet been implemented.")
-
+    raise NotImplementedError("restricted_linear_gmm has not yet been implemented.")
 #+end_src
 
 ** Factor Regression
@@ -2073,38 +2135,37 @@ We're interested here in multivariate regressions of the form
 \]
 where $Y$ and $U$ are $N\times k$, $X$ is $n\times \ell$, $B$ is $\ell\times k$, $F$ is $N\times r$, and \Lambda is $r\times k$.  Only $(Y,X)$ are observed; $F$ is a collection of latent "factors."  The identifying assumptions are that $U$ is orthogonal to $(X,F)$ and $\E F_iF_i^\T = I_r$.  [cite/t:@hansen20:econometrics] describes an iterative approach to estimation, which we implement below.
 #+begin_src python :tangle metrics_miscellany/estimators.py
-def factor_regression(Y,X,F=None,rank=1,tol=1e-3):
+def factor_regression(Y, X, F=None, rank=1, tol=1e-3):
 
-    if rank>1:
+    if rank > 1:
         raise NotImplementedError("Factor regression for rank>1 is not reliable.")
 
-    N,k = Y.shape
-    def ols(X,Y):
-        N,k = Y.shape
-        XX = utils.self_inner(X)/N
-        XY = utils.matrix_product(X.T,Y)/N
-        B = np.linalg.lstsq(XX,XY,rcond=None)[0]
-        return pd.DataFrame(B,index=X.columns,columns=Y.columns)
+    N, k = Y.shape
+
+    def ols(X, Y):
+        N, k = Y.shape
+        XX = utils.self_inner(X) / N
+        XY = utils.matrix_product(X.T, Y) / N
+        B = np.linalg.lstsq(XX, XY, rcond=None)[0]
+        return pd.DataFrame(B, index=X.columns, columns=Y.columns)
 
     if F is None:
-        B = ols(X,Y)
+        B = ols(X, Y)
         F = 0
     else:
-        parms = ols(pd.concat([X,F],axis=1),Y)
-        L = parms.iloc[-rank:,:]
-        B = parms.iloc[:-rank,:]
+        parms = ols(pd.concat([X, F], axis=1), Y)
+        L = parms.iloc[-rank:, :]
+        B = parms.iloc[:-rank, :]
 
     lastF = F
-    F,s,vt = utils.svd_missing(Y - utils.matrix_product(X,B),max_rank=rank)
+    F, s, vt = utils.svd_missing(Y - utils.matrix_product(X, B), max_rank=rank)
     scale = F.std()
-    F = F.multiply(1/scale)
+    F = F.multiply(1 / scale)
 
-    if np.linalg.norm(F-lastF)>tol:
-        B,L,F = factor_regression(Y,X,F=F,rank=rank,tol=tol)
+    if np.linalg.norm(F - lastF) > tol:
+        B, L, F = factor_regression(Y, X, F=F, rank=rank, tol=tol)
 
-    return B,L,F
-
-
+    return B, L, F
 #+end_src
 *** Factor Regression Test
 #+begin_src python :tangle metrics_miscellany/test/test_factor_regression.py
@@ -2114,68 +2175,76 @@ from metrics_miscellany.estimators import factor_regression
 from metrics_miscellany import utils
 import numpy as np
 
-def generate_multivariate_normal(N,k,V=None,colidx='a'):
+
+def generate_multivariate_normal(N, k, V=None, colidx="a"):
 
     try:
         a = ord(colidx)
-        labels = list(map(chr, range(a, a+k)))
+        labels = list(map(chr, range(a, a + k)))
     except TypeError:
-        labels = range(colidx,colidx+k)
+        labels = range(colidx, colidx + k)
 
     if V is None:
-        D = pd.DataFrame(np.random.randn(k,k),index=labels,columns=labels)
-        V = D.T@D
+        D = pd.DataFrame(np.random.randn(k, k), index=labels, columns=labels)
+        V = D.T @ D
     else:
-        V = pd.DataFrame(V,index=labels,columns=labels)
+        V = pd.DataFrame(V, index=labels, columns=labels)
 
-    X = pd.DataFrame(stats.multivariate_normal(cov=V).rvs(N),columns=labels)
+    X = pd.DataFrame(stats.multivariate_normal(cov=V).rvs(N), columns=labels)
 
     return X
 
-def main(N,k,l,r):
 
-    U = generate_multivariate_normal(N,k,V=np.eye(k),colidx='A')/100
+def main(N, k, l, r):
 
-    X = generate_multivariate_normal(N,l)
+    U = generate_multivariate_normal(N, k, V=np.eye(k), colidx="A") / 100
 
-    a = ord('a')
-    A = ord('A')
-    rlabels = list(map(chr, range(a, a+l)))
-    clabels = list(map(chr, range(A, A+k)))
-    B = pd.DataFrame(np.arange(1,l*k+1).reshape(l,k),index=rlabels,columns=clabels)
+    X = generate_multivariate_normal(N, l)
 
-    F = generate_multivariate_normal(N,r,colidx=0)
+    a = ord("a")
+    A = ord("A")
+    rlabels = list(map(chr, range(a, a + l)))
+    clabels = list(map(chr, range(A, A + k)))
+    B = pd.DataFrame(
+        np.arange(1, l * k + 1).reshape(l, k), index=rlabels, columns=clabels
+    )
+
+    F = generate_multivariate_normal(N, r, colidx=0)
     F = F - F.mean()
     scale = F.std()
-    F = F.multiply(1/scale)
+    F = F.multiply(1 / scale)
 
-    L = pd.DataFrame(np.arange(1,k*r+1).reshape(r,k)/10,index=F.columns,columns=U.columns)
-    L = L.multiply(scale,axis=0)
+    L = pd.DataFrame(
+        np.arange(1, k * r + 1).reshape(r, k) / 10, index=F.columns, columns=U.columns
+    )
+    L = L.multiply(scale, axis=0)
 
-    Y = utils.matrix_product(X,B) + utils.matrix_product(F,L) + U
+    Y = utils.matrix_product(X, B) + utils.matrix_product(F, L) + U
 
-    return Y,X,F,B,L,U
+    return Y, X, F, B, L, U
 
-def test_factor_regression(N=1000,k=10,l=2,r=1):
+
+def test_factor_regression(N=1000, k=10, l=2, r=1):
     # Seed the global RNG so this test is independent of upstream test
     # ordering: =main()= and =generate_multivariate_normal()= use
     # np.random.* and scipy.stats.rvs() without an explicit seed.
     np.random.seed(20240101)
-    Y,X,F0,B0,L0,U0 = main(N,k,l,r)
-    X['Constant'] = 1
+    Y, X, F0, B0, L0, U0 = main(N, k, l, r)
+    X["Constant"] = 1
 
-    B,L,F = factor_regression(Y,X,rank=r)
+    B, L, F = factor_regression(Y, X, rank=r)
 
-    assert np.linalg.norm(F0-F) < np.linalg.norm(F0)
+    assert np.linalg.norm(F0 - F) < np.linalg.norm(F0)
 
-    assert np.all(Y.var()>(Y-X@B).var())
+    assert np.all(Y.var() > (Y - X @ B).var())
 
-    assert np.all((Y-X@B).var()>(Y-X@B-F@L).var())
+    assert np.all((Y - X @ B).var() > (Y - X @ B - F @ L).var())
 
-    assert np.linalg.norm((B0-B).dropna())/np.linalg.norm(B0) < 0.01
+    assert np.linalg.norm((B0 - B).dropna()) / np.linalg.norm(B0) < 0.01
 
-if __name__ == '__main__':
-    test_factor_regression(N=10000,r=1)
+
+if __name__ == "__main__":
+    test_factor_regression(N=10000, r=1)
  #+end_src
 
 * Order statistics
@@ -2184,16 +2253,25 @@ See William Huber's https://stats.stackexchange.com/questions/122001/confidence-
 #+begin_src python :tangle metrics_miscellany/order_statistics.py
 from scipy.stats.distributions import binom
 
-def quantile_confidence_intervals(x,q=1/2,minimum_coverage=0.95):
-    α = 1-minimum_coverage
+
+def quantile_confidence_intervals(x, q=1 / 2, minimum_coverage=0.95):
+    α = 1 - minimum_coverage
     x = x.sort_values()
     n = x.shape[0]
-    p = binom(n,q)
-    u,cu = [(i,p.cdf(i)) for i in range(1,n) if p.cdf(i)>1-α/2 and p.cdf(i-1)<=1-α/2][0]
-    l,cl = [(i-1,p.cdf(i-1)) for i in range(1,n) if p.cdf(i)>α/2 and p.cdf(i-1)<=α/2][0]
+    p = binom(n, q)
+    u, cu = [
+        (i, p.cdf(i))
+        for i in range(1, n)
+        if p.cdf(i) > 1 - α / 2 and p.cdf(i - 1) <= 1 - α / 2
+    ][0]
+    l, cl = [
+        (i - 1, p.cdf(i - 1))
+        for i in range(1, n)
+        if p.cdf(i) > α / 2 and p.cdf(i - 1) <= α / 2
+    ][0]
 
-    coverage = 1 - cl - (1-cu)
-    return (x.iloc[l],x.iloc[u]),coverage
+    coverage = 1 - cl - (1 - cu)
+    return (x.iloc[l], x.iloc[u]), coverage
 #+end_src
 
 *** Tests for =quantile_confidence_intervals=
@@ -2208,8 +2286,7 @@ def test_qci_returns_interval_and_coverage():
     achieved coverage at least the requested minimum."""
     rng = np.random.default_rng(0)
     x = pd.Series(rng.standard_normal(101))  # odd n -> median sits on a point
-    (lo, hi), coverage = quantile_confidence_intervals(
-        x, q=0.5, minimum_coverage=0.95)
+    (lo, hi), coverage = quantile_confidence_intervals(x, q=0.5, minimum_coverage=0.95)
     assert lo <= hi
     assert coverage >= 0.95
 
@@ -2232,8 +2309,7 @@ def test_qci_brackets_population_median():
     signal a real bug, not Monte Carlo noise."""
     rng = np.random.default_rng(2)
     x = pd.Series(rng.standard_normal(500))
-    (lo, hi), _ = quantile_confidence_intervals(
-        x, q=0.5, minimum_coverage=0.99)
+    (lo, hi), _ = quantile_confidence_intervals(x, q=0.5, minimum_coverage=0.99)
     assert lo <= 0.0 <= hi
 
 
@@ -2247,12 +2323,11 @@ def test_qci_quartile_call_still_works():
     assert coverage >= 0.95
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     test_qci_returns_interval_and_coverage()
     test_qci_endpoints_are_order_statistics()
     test_qci_brackets_population_median()
     test_qci_quartile_call_still_works()
-
 #+end_src
 
 * Kernel Methods
@@ -2262,15 +2337,18 @@ import datamat as dm
 import numpy as np
 
 sqrt3 = np.sqrt(3)  # Avoid repeated evaluation of this for speed...
-sqrt2pi = np.sqrt(2*np.pi)
+sqrt2pi = np.sqrt(2 * np.pi)
+
 
 def rectangular(u):
-    return (np.abs(u) < sqrt3)/(2*sqrt3)  # Rectangular kernel
+    return (np.abs(u) < sqrt3) / (2 * sqrt3)  # Rectangular kernel
+
 
 def gaussian(u):
-    return np.exp(-(u**2)/2)/sqrt2pi # Gaussian kernel
+    return np.exp(-(u**2) / 2) / sqrt2pi  # Gaussian kernel
 
-def gram(X,kernel=gaussian,bw=1):
+
+def gram(X, kernel=gaussian, bw=1):
     """
     Construct Gram matrix from vector of data X.
     """
@@ -2282,29 +2360,30 @@ def gram(X,kernel=gaussian,bw=1):
         df = False
         x = X
 
-    assert len(x.shape)==1
-    K = kernel((x.reshape((-1,1)) - x.reshape((1,-1)))/bw)
+    assert len(x.shape) == 1
+    K = kernel((x.reshape((-1, 1)) - x.reshape((1, -1))) / bw)
 
     if df:
-        if isinstance(X,(dm.DataVec,dm.DataMat)):
-            K = dm.DataMat(K,index=X.index,columns=X.index)
-        elif isinstance(X,(pd.Series,pd.DataFrame)):
-            K = pd.DataFrame(K,index=X.index,columns=X.index)
+        if isinstance(X, (dm.DataVec, dm.DataMat)):
+            K = dm.DataMat(K, index=X.index, columns=X.index)
+        elif isinstance(X, (pd.Series, pd.DataFrame)):
+            K = pd.DataFrame(K, index=X.index, columns=X.index)
 
     return K
 
 
-
-def kernel_regression(X,y,bw,kernel=gaussian):
+def kernel_regression(X, y, bw, kernel=gaussian):
     """
     Use data (X,y) to estimate E(y|x), using bandwidth bw.
     """
-    def mhat(x):
-        S = kernel((X-x)/bw) # "Smooths"
 
-        return S.dot(y)/S.sum()
+    def mhat(x):
+        S = kernel((X - x) / bw)  # "Smooths"
+
+        return S.dot(y) / S.sum()
 
     return mhat
+
 
 def kernel_regression_variance(X, y, bw, kernel=gaussian):
     """
@@ -2340,7 +2419,7 @@ def kernel_regression_variance(X, y, bw, kernel=gaussian):
 
     def sigmahat(x):
         S = kernel((X - x) / bw)  # "Smooths"
-        return (S ** 2).dot(e2) / (S ** 2).sum()
+        return (S**2).dot(e2) / (S**2).sum()
 
     return sigmahat
 #+end_src
@@ -2358,9 +2437,9 @@ from metrics_miscellany import kernel_methods as km
 def smooth_data():
     rng = np.random.default_rng(0)
     n = 200
-    x = pd.Series(np.linspace(-3, 3, n), name='x')
+    x = pd.Series(np.linspace(-3, 3, n), name="x")
     sigma = 0.1
-    y = pd.Series(np.sin(x) + sigma * rng.standard_normal(n), name='y')
+    y = pd.Series(np.sin(x) + sigma * rng.standard_normal(n), name="y")
     return x, y, sigma
 
 
@@ -2386,20 +2465,19 @@ def test_kernel_regression_variance_recovers_homoskedastic_noise(smooth_data):
         est = float(sigmahat(x0))
         # Match sigma^2 to within a factor of ~3 -- generous to allow
         # for bias from kernel smoothing.
-        assert sigma ** 2 / 3 < est < 3 * sigma ** 2, (
-            f"sigmahat({x0}) = {est:.4f}, expected ~{sigma**2:.4f}")
+        assert (
+            sigma**2 / 3 < est < 3 * sigma**2
+        ), f"sigmahat({x0}) = {est:.4f}, expected ~{sigma**2:.4f}"
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     rng = np.random.default_rng(0)
     n = 200
-    x = pd.Series(np.linspace(-3, 3, n), name='x')
+    x = pd.Series(np.linspace(-3, 3, n), name="x")
     sigma = 0.1
-    y = pd.Series(np.sin(x) + sigma * rng.standard_normal(n), name='y')
+    y = pd.Series(np.sin(x) + sigma * rng.standard_normal(n), name="y")
     test_kernel_regression_recovers_smooth_target((x, y, sigma))
-    test_kernel_regression_variance_recovers_homoskedastic_noise(
-        (x, y, sigma))
-
+    test_kernel_regression_variance_recovers_homoskedastic_noise((x, y, sigma))
 #+end_src
 
 
@@ -2424,6 +2502,7 @@ inv = utils.inv
 ######################################################
 # Beginning of procedural version of gmm routines
 
+
 def gN(b):
     """Averages of g_j(b).
 
@@ -2431,15 +2510,16 @@ def gN(b):
     """
     e = gj(b)
 
-    gN.N,gN.k = e.shape
+    gN.N, gN.k = e.shape
     gN.N = e.count()  # Allows for possibility of missing data
     # Check to see more obs. than moments.
     assert np.all(gN.N > gN.k), "More moments than observations"
 
     try:
-        return e.mean(axis=0).reshape((-1,1))
+        return e.mean(axis=0).reshape((-1, 1))
     except AttributeError:
         return e.mean(axis=0)
+
 
 def Omegahat(b):
     e = gj(b)
@@ -2449,49 +2529,53 @@ def Omegahat(b):
     e = e - e.mean(axis=0)
     sqrtN = np.sqrt(e.count())
 
-    e = e/sqrtN
+    e = e / sqrtN
 
-    ete = matrix_product(e.T,e)
+    ete = matrix_product(e.T, e)
 
     return ete
 
-def JN(b,W=None):
+
+def JN(b, W=None):
 
     if W is None:
         W = utils.inv(Omegahat(b))
 
-    m = gN(b) # Sample moments @ b
+    m = gN(b)  # Sample moments @ b
 
-    #Pdb().set_trace()
+    # Pdb().set_trace()
 
     # Scaling by diag(N) allows us to deal with missing values
-    WN = pd.DataFrame(matrix_product(diag(gN.N),W))
+    WN = pd.DataFrame(matrix_product(diag(gN.N), W))
 
-    crit = (m.T@WN@m).squeeze()
+    crit = (m.T @ WN @ m).squeeze()
     assert crit >= 0
 
     return crit
 
-def minimize(f,b_init=None):
+
+def minimize(f, b_init=None):
     if b_init is None:
         return minimize_scalar(f).x
     else:
-        return scipy_min(f,b_init).x
+        return scipy_min(f, b_init).x
 
-def one_step_gmm(W=None,b_init=None):
+
+def one_step_gmm(W=None, b_init=None):
 
     if b_init is None:
         b_init = 0
 
     if W is None:
         e = gj(b_init)
-        W = pd.DataFrame(np.eye(e.shape[1]),index=e.columns,columns=e.columns)
+        W = pd.DataFrame(np.eye(e.shape[1]), index=e.columns, columns=e.columns)
 
-    assert np.linalg.matrix_rank(W)==W.shape[0]
+    assert np.linalg.matrix_rank(W) == W.shape[0]
 
-    b = minimize(lambda b: JN(b,W),b_init=b_init)
+    b = minimize(lambda b: JN(b, W), b_init=b_init)
 
-    return b, JN(b,W)
+    return b, JN(b, W)
+
 
 def two_step_gmm(b_init=None):
 
@@ -2502,29 +2586,31 @@ def two_step_gmm(b_init=None):
     # first step estimate of beta
     W2 = utils.inv(Omegahat(b1))
 
-    return one_step_gmm(W=W2,b_init=b1)
+    return one_step_gmm(W=W2, b_init=b1)
+
 
 def continuously_updated_gmm(b_init=None):
 
     # First step uses identity weighting matrix
     W = lambda b: utils.inv(Omegahat(b))
 
-    bhat = minimize(lambda b: JN(b,utils.inv(Omegahat(b))),b_init=b_init)
+    bhat = minimize(lambda b: JN(b, utils.inv(Omegahat(b))), b_init=b_init)
 
-    return bhat, JN(bhat,W(bhat))
+    return bhat, JN(bhat, W(bhat))
+
 
 def dgN(b):
     """
     Average gradient of gj(b).
 
-    This function provides numerical derivatives.  
+    This function provides numerical derivatives.
 
     One may wish to override this with a function dgN which returns analytical derivatives.
     """
-    gradient = pd.DataFrame(approx_fprime(b,gN),index=gN(b).index)
+    gradient = pd.DataFrame(approx_fprime(b, gN), index=gN(b).index)
 
     return gradient
-    
+
 
 def Vb(b):
     """Covariance of estimator of b.
@@ -2532,9 +2618,10 @@ def Vb(b):
     Note that one must supply gmm.dgN, the average gradient of gmm.gj at b.
     """
     Q = dgN(b)
-    W = pd.DataFrame(matrix_product(diag(gN.N),Omegahat(b)))
+    W = pd.DataFrame(matrix_product(diag(gN.N), Omegahat(b)))
 
-    return utils.inv(Q.T@utils.inv(W)@Q)
+    return utils.inv(Q.T @ utils.inv(W) @ Q)
+
 
 def print_version():
     """CLI entrypoint registered in pyproject.toml as
@@ -2543,7 +2630,9 @@ def print_version():
     the wheel rather than the long-stale =__version__ = "0.3.1"= that
     used to live at module top."""
     from metrics_miscellany import __version__
+
     print(__version__)
+
 
 # End of procedural version of gmm routines
 ######################################################
@@ -2556,7 +2645,8 @@ from metrics_miscellany.estimators import gmm
 from numpy.linalg import inv
 from scipy.stats import distributions as iid
 
-def dgp(N,beta,gamma,sigma_u,VXZ):
+
+def dgp(N, beta, gamma, sigma_u, VXZ):
     """Generate a tuple of (y,X,Z).
 
     Satisfies model:
@@ -2576,98 +2666,99 @@ def dgp(N,beta,gamma,sigma_u,VXZ):
     - VXZ :: Var([X,Z]|u)
     """
 
-    u = pd.Series(iid.norm.rvs(size=(N,))*sigma_u)
+    u = pd.Series(iid.norm.rvs(size=(N,)) * sigma_u)
 
     # "Square root" of VXZ via eigendecomposition
-    lbda,v = np.linalg.eig(VXZ)
-    SXZ = v@np.diag(np.sqrt(lbda))
+    lbda, v = np.linalg.eig(VXZ)
+    SXZ = v @ np.diag(np.sqrt(lbda))
 
     # Generate normal random variates [X*,Z]
-    XZ = pd.DataFrame(iid.norm.rvs(size=(N,VXZ.shape[0]))@SXZ.T)
+    XZ = pd.DataFrame(iid.norm.rvs(size=(N, VXZ.shape[0])) @ SXZ.T)
 
     # But X is endogenous...
-    X = XZ.loc[:,0].add(gamma*u,axis=0)
-    Z = XZ.loc[:,1:]
+    X = XZ.loc[:, 0].add(gamma * u, axis=0)
+    Z = XZ.loc[:, 1:]
 
     # Calculate y
-    y = X*beta + u
+    y = X * beta + u
 
-    return y,X,Z
+    return y, X, Z
+
 
 def test_gmm(N=10000):
 
     ## Play with us!
-    beta = 1     # "Coefficient of interest"
-    gamma = 1    # Governs effect of u on X
+    beta = 1  # "Coefficient of interest"
+    gamma = 1  # Governs effect of u on X
     sigma_u = 1  # Note assumption of homoskedasticity
     ## Play with us!
 
     # Let Z have order ell, and X order 1, with Var([X,Z]|u)=VXZ
 
-    ell = 4 # Play with me too!
+    ell = 4  # Play with me too!
 
     # Arbitrary (but deterministic) choice for VXZ = [VX Cov(X,Z);
     #                                                 Cov(Z,X) VZ]
     # Pinned down by choice of a matrix A...
-    A = np.sqrt(1/np.arange(1,(ell+1)**2+1)).reshape((ell+1,ell+1))
+    A = np.sqrt(1 / np.arange(1, (ell + 1) ** 2 + 1)).reshape((ell + 1, ell + 1))
 
     ## Below here we're less playful.
 
     # Now Var([X,Z]|u) is constructed so guaranteed pos. def.
-    VXZ = A.T@A
+    VXZ = A.T @ A
 
-    Q = -VXZ[1:,[0]]  # -EZX', or generally Edgj/db'
+    Q = -VXZ[1:, [0]]  # -EZX', or generally Edgj/db'
 
     # Gimme some truth:
-    truth = (beta,gamma,sigma_u,VXZ)
+    truth = (beta, gamma, sigma_u, VXZ)
 
     ## But play with Omega if you want to introduce heteroskedascity
-    Omega = (sigma_u**2)*VXZ[1:,1:] # E(Zu)(u'Z')
+    Omega = (sigma_u**2) * VXZ[1:, 1:]  # E(Zu)(u'Z')
 
     # Asymptotic variance of optimally weighted GMM estimator:
-    AVar_b = inv(Q.T@inv(Omega)@Q)
+    AVar_b = inv(Q.T @ inv(Omega) @ Q)
 
-    data = dgp(N,*truth)
+    data = dgp(N, *truth)
 
     def gj(b):
-        y,X,Z = data
-        e = (y.squeeze()-b*X.squeeze())
+        y, X, Z = data
+        e = y.squeeze() - b * X.squeeze()
 
-        Ze = Z.multiply(e,axis=0)
+        Ze = Z.multiply(e, axis=0)
 
         return Ze
 
     def dgN(b):
-        y,X,Z = data
-        return Z.T@X
+        y, X, Z = data
+        return Z.T @ X
 
     gmm.gj = gj
     gmm.dgN = dgN
 
-    b,J = gmm.two_step_gmm()
+    b, J = gmm.two_step_gmm()
 
-    assert (b-beta)**2 < 0.01, f"Estimate {b} outside tolerance."
+    assert (b - beta) ** 2 < 0.01, f"Estimate {b} outside tolerance."
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     test_gmm()
-
 #+end_src
 ** GMM Class
 #+begin_src python :tangle metrics_miscellany/GMM_class.py
 from . import gmm
 import numpy as np
 
+
 class GMM(object):
 
-    def __init__(self,gj,data,B,W=None):
+    def __init__(self, gj, data, B, W=None):
         """GMM problem for restrictions E(gj(b0))=0, estimated using data with b0 in R^k.
 
-           - If supplied B is a positive integer k, then
-             space taken to be R^k.
-           - If supplied B is a k-vector, then
-             parameter space taken to be R^k with B a possible
-             starting value for optimization.
+        - If supplied B is a positive integer k, then
+          space taken to be R^k.
+        - If supplied B is a k-vector, then
+          parameter space taken to be R^k with B a possible
+          starting value for optimization.
         """
         self.gj = gj
         gmm.gj = gj  # Overwrite member of gmm module
@@ -2684,7 +2775,7 @@ class GMM(object):
             self.k = B
             self.b_init = np.zeros(self.k)
 
-        self.ell = gj(self.b_init,self.data).shape[1]
+        self.ell = gj(self.b_init, self.data).shape[1]
 
         if type(data) is tuple:
             self.N = data[0].shape[0]
@@ -2693,48 +2784,46 @@ class GMM(object):
 
         self.minimize = gmm.minimize
 
-    def gN(self,b):
+    def gN(self, b):
         """Averages of g_j(b).
 
         This is generic for data, to be passed to gj.
         """
-        return gmm.gN(b,self.data)
+        return gmm.gN(b, self.data)
 
-    def Omegahat(self,b):
+    def Omegahat(self, b):
 
-        return gmm.Omegahat(b,self.data)
+        return gmm.Omegahat(b, self.data)
 
-    def JN(self,b,W):
+    def JN(self, b, W):
 
-        return gmm.JN(b,W,self.data)
+        return gmm.JN(b, W, self.data)
 
-    def one_step_gmm(self,W=None,b_init=None):
+    def one_step_gmm(self, W=None, b_init=None):
 
-        self.b = gmm.one_step_gmm(self.data,W,b_init=self.b_init)[0]
+        self.b = gmm.one_step_gmm(self.data, W, b_init=self.b_init)[0]
 
         return self.b
 
     def two_step_gmm(self):
 
-        self.b = gmm.two_step_gmm(self.data,b_init=self.b_init)[0]
+        self.b = gmm.two_step_gmm(self.data, b_init=self.b_init)[0]
         self.W = np.linalg.inv(self.Omegahat(self.b))
 
         return self.b
 
     def continuously_updated_gmm(self):
 
-        est = gmm.continuously_updated_gmm(self.data,b_init=self.b_init)[0]
+        est = gmm.continuously_updated_gmm(self.data, b_init=self.b_init)[0]
         self.b = est
         self.W = np.linalg.inv(self.Omegahat(self.b))
 
         return self.b
 
 
-
-if __name__=='__main__':
-    #foo = GMM(gmm.gj,
+if __name__ == "__main__":
+    # foo = GMM(gmm.gj,
     pass
-
 #+end_src
 
 * Hypothesis Tests
@@ -2744,6 +2833,7 @@ from metrics_miscellany import utils
 from scipy import stats
 import pandas as pd
 import numpy as np
+
 
 def chi2_test(b, V, var_selection=None, R=None, TEST=False):
     """Construct chi2 test of R'b = 0.
@@ -2769,7 +2859,8 @@ def chi2_test(b, V, var_selection=None, R=None, TEST=False):
         else:
             raise ValueError(
                 "var_selection should be a query string or a list/tuple "
-                "of variable names.")
+                "of variable names."
+            )
     else:
         myb = b
 
@@ -2787,21 +2878,21 @@ def chi2_test(b, V, var_selection=None, R=None, TEST=False):
             myV = np.array([[myV]])
             myb = np.array([[myb]])
 
-    if TEST: # Generate values of my that satisfy Var(myb)=Vb and Emyb=0
-        myb = myb*0 + stats.multivariate_normal(cov=((1e0)*np.eye(myV.shape[0]) + myV)).rvs().reshape((-1,1))
+    if TEST:  # Generate values of my that satisfy Var(myb)=Vb and Emyb=0
+        myb = myb * 0 + stats.multivariate_normal(
+            cov=((1e0) * np.eye(myV.shape[0]) + myV)
+        ).rvs().reshape((-1, 1))
 
     # "Invert"...
 
     L = np.linalg.cholesky(myV)
-    y = np.linalg.solve(L.T,myb)
+    y = np.linalg.solve(L.T, myb)
 
-    chi2 = y.T@y
+    chi2 = y.T @ y
 
-    y = pd.Series(y.squeeze(),index=myb.index)
+    y = pd.Series(y.squeeze(), index=myb.index)
 
-    return chi2,1-stats.distributions.chi2.cdf(chi2,df=len(myb))
-
-
+    return chi2, 1 - stats.distributions.chi2.cdf(chi2, df=len(myb))
 #+end_src
 
 *** Test of chi2_test
@@ -2811,19 +2902,21 @@ from scipy import stats
 from metrics_miscellany import tests
 import numpy as np
 
+
 def main():
 
-    labels = ['a','b']
-    D = pd.DataFrame([[2,1],[2,2]],index=labels,columns=labels)
-    D.index.name = 'Variable'
-    D.columns.name = 'Variable'
+    labels = ["a", "b"]
+    D = pd.DataFrame([[2, 1], [2, 2]], index=labels, columns=labels)
+    D.index.name = "Variable"
+    D.columns.name = "Variable"
 
-    V = D.T@D
+    V = D.T @ D
 
-    b = pd.DataFrame(stats.multivariate_normal(cov=V).rvs(),index=labels)
-    b.index.name = 'Variable'
+    b = pd.DataFrame(stats.multivariate_normal(cov=V).rvs(), index=labels)
+    b.index.name = "Variable"
 
-    return tests.chi2_test(b,V,"Variable in ['a']")
+    return tests.chi2_test(b, V, "Variable in ['a']")
+
 
 def test_chi2():
     p = []
@@ -2833,8 +2926,8 @@ def test_chi2():
 
     p = pd.Series([x[0][0] for x in p]).squeeze()
 
-    X = np.linspace(.05,.95,10)
-    assert np.linalg.norm(p.quantile(X) - X)/len(X) < 1e-1
+    X = np.linspace(0.05, 0.95, 10)
+    assert np.linalg.norm(p.quantile(X) - X) / len(X) < 1e-1
 
 
 def _as_scalar(x):
@@ -2850,17 +2943,17 @@ def test_chi2_test_var_selection_and_R_together():
     formed against the *unrestricted* coefficient vector while
     =myV= had already been sliced down.
     """
-    labels = ['a', 'b', 'c']
+    labels = ["a", "b", "c"]
     V = pd.DataFrame(np.eye(3), index=labels, columns=labels)
     np.random.seed(0)
     b = pd.DataFrame(
-        stats.multivariate_normal(cov=V).rvs(),
-        index=labels, columns=['Coefficients'])
+        stats.multivariate_normal(cov=V).rvs(), index=labels, columns=["Coefficients"]
+    )
 
     # R indexed over the full label set, but the caller asks to test
     # only the (a, b) subset.  Should run, not raise.
-    R = pd.DataFrame(np.eye(3)[:, :2], index=labels, columns=['c1', 'c2'])
-    chi2_stat, p = tests.chi2_test(b, V, var_selection=['a', 'b'], R=R)
+    R = pd.DataFrame(np.eye(3)[:, :2], index=labels, columns=["c1", "c2"])
+    chi2_stat, p = tests.chi2_test(b, V, var_selection=["a", "b"], R=R)
     assert 0.0 <= _as_scalar(p) <= 1.0
     assert _as_scalar(chi2_stat) >= 0.0
 
@@ -2868,21 +2961,21 @@ def test_chi2_test_var_selection_and_R_together():
 def test_chi2_test_var_selection_and_identity_R_match_selection_only():
     """An identity =R= over the selected subset must produce the same
     test as supplying =var_selection= alone."""
-    labels = ['a', 'b', 'c']
+    labels = ["a", "b", "c"]
     V = pd.DataFrame(np.eye(3), index=labels, columns=labels)
     np.random.seed(1)
     b = pd.DataFrame(
-        stats.multivariate_normal(cov=V).rvs(),
-        index=labels, columns=['Coefficients'])
+        stats.multivariate_normal(cov=V).rvs(), index=labels, columns=["Coefficients"]
+    )
 
-    chi2_a, p_a = tests.chi2_test(b, V, var_selection=['a', 'b'])
-    R_id = pd.DataFrame(np.eye(2), index=['a', 'b'], columns=['c1', 'c2'])
-    chi2_b, p_b = tests.chi2_test(b, V, var_selection=['a', 'b'], R=R_id)
+    chi2_a, p_a = tests.chi2_test(b, V, var_selection=["a", "b"])
+    R_id = pd.DataFrame(np.eye(2), index=["a", "b"], columns=["c1", "c2"])
+    chi2_b, p_b = tests.chi2_test(b, V, var_selection=["a", "b"], R=R_id)
     np.testing.assert_allclose(_as_scalar(chi2_a), _as_scalar(chi2_b), rtol=1e-10)
     np.testing.assert_allclose(_as_scalar(p_a), _as_scalar(p_b), rtol=1e-10)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     test_chi2()
     test_chi2_test_var_selection_and_R_together()
     test_chi2_test_var_selection_and_identity_R_match_selection_only()
@@ -2890,12 +2983,13 @@ if __name__ == '__main__':
 ** Skillings-Mack Test (Generalization of Friedman Test)
 This implements a version of the test proposed in [cite/t:@skillings-mack81], which generalizes the Friedman rank test to the case in which data is incomplete.  Because the Friedman test is a special case, we also create a =friedman= test.
 #+begin_src python :tangle metrics_miscellany/tests.py
-def skillings_mack(df,bootstrap=False):
+def skillings_mack(df, bootstrap=False):
     """
     Non-parametric test of correlation across columns of df.
 
     Algorithm from https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2761045/
     """
+
     def construct_statistic(R, kay, X):
         """
         Once we have ranks R (and the original observation matrix X
@@ -2910,15 +3004,15 @@ def skillings_mack(df,bootstrap=False):
         body.
         """
         # Fill missing ranks with (k_i+1)/2
-        R = R.where(~np.isnan(R),(kay+1)/2,axis=1)
+        R = R.where(~np.isnan(R), (kay + 1) / 2, axis=1)
 
         # Construct adjusted observation matrix
-        A = R.subtract((kay.values+1)/2,axis=1)@np.sqrt(12/(kay.values+1))
+        A = R.subtract((kay.values + 1) / 2, axis=1) @ np.sqrt(12 / (kay.values + 1))
 
         # Count of observations in both columns k and l
-        O = ~np.isnan(X)+0.
+        O = ~np.isnan(X) + 0.0
 
-        Sigma = np.eye(O.shape[0]) - O@O.T
+        Sigma = np.eye(O.shape[0]) - O @ O.T
 
         # Delete diagonal
         Sigma = Sigma - np.diag(np.diag(Sigma))
@@ -2926,12 +3020,12 @@ def skillings_mack(df,bootstrap=False):
         # Add minus column sums to diagonal
         Sigma = Sigma - np.diag(Sigma.sum())
 
-        return A.T@np.linalg.pinv(Sigma)@A
+        return A.T @ np.linalg.pinv(Sigma) @ A
 
     # Drop any rows with only one column
-    X = df.loc[df.count(axis=1)>0]
+    X = df.loc[df.count(axis=1) > 0]
 
-    n,k = X.shape
+    n, k = X.shape
 
     # Counts of obs per row ("treatments")
     kay = X.count(axis=0)
@@ -2944,7 +3038,7 @@ def skillings_mack(df,bootstrap=False):
     SM = construct_statistic(R, kay, X)
 
     if not bootstrap:
-        p = 1-stats.distributions.chi2.cdf(SM,df=n-1)
+        p = 1 - stats.distributions.chi2.cdf(SM, df=n - 1)
     else:
         if bootstrap == True:
             tol = 1e-03
@@ -2955,17 +3049,21 @@ def skillings_mack(df,bootstrap=False):
         lastSE = np.inf
         its = 0
         sms = []
-        while (its < 30) or (np.abs(SE-lastSE) > tol):
+        while (its < 30) or (np.abs(SE - lastSE) > tol):
             lastSE = SE
-            scrambled = pd.DataFrame(np.apply_along_axis(np.random.permutation,axis=0,arr=R.values),
-                                     index=R.index,columns=R.columns)
-           
+            scrambled = pd.DataFrame(
+                np.apply_along_axis(np.random.permutation, axis=0, arr=R.values),
+                index=R.index,
+                columns=R.columns,
+            )
+
             sms.append(construct_statistic(scrambled, kay, X))
             SE = np.std(sms)
             its += 1
-        p = np.mean(sms>SM)
+        p = np.mean(sms > SM)
 
-    return SM,p
+    return SM, p
+
 
 friedman = skillings_mack
 #+end_src
@@ -2976,16 +3074,21 @@ import numpy as np
 import pytest
 from metrics_miscellany import tests
 
+
 def test_sm_against_R():
-    """This is an example given in https://cran.r-project.org/web/packages/Skillings.Mack/Skillings.Mack.pdf
-    """
-    X = pd.DataFrame([[3.2, 3.1, 4.3, 3.5, 3.6, 4.5, np.nan, 4.3, 3.5],
-                      [4.1, 3.9, 3.5, 3.6, 4.2, 4.7, 4.2, 4.6, np.nan],
-                      [3.8, 3.4, 4.6, 3.9, 3.7, 3.7, 3.4, 4.4, 3.7],
-                      [4.2, 4.,  4.8, 4., 3.9, np.nan, np.nan, 4.9, 3.9]])
+    """This is an example given in https://cran.r-project.org/web/packages/Skillings.Mack/Skillings.Mack.pdf"""
+    X = pd.DataFrame(
+        [
+            [3.2, 3.1, 4.3, 3.5, 3.6, 4.5, np.nan, 4.3, 3.5],
+            [4.1, 3.9, 3.5, 3.6, 4.2, 4.7, 4.2, 4.6, np.nan],
+            [3.8, 3.4, 4.6, 3.9, 3.7, 3.7, 3.4, 4.4, 3.7],
+            [4.2, 4.0, 4.8, 4.0, 3.9, np.nan, np.nan, 4.9, 3.9],
+        ]
+    )
 
     # This value of SM statistic matches that from R Skill.Mack routine
-    assert np.allclose(tests.skillings_mack(X)[0],15.493)
+    assert np.allclose(tests.skillings_mack(X)[0], 15.493)
+
 
 @pytest.mark.slow
 def test_sm_type1(reps=100):
@@ -2999,20 +3102,25 @@ def test_sm_type1(reps=100):
     """
     rng = np.random.default_rng(0)
 
-    ps = pd.Series([tests.skillings_mack(pd.DataFrame(rng.random((100,10))),
-                                         bootstrap=0.02)[1]
-                    for _ in range(reps)])
+    ps = pd.Series(
+        [
+            tests.skillings_mack(pd.DataFrame(rng.random((100, 10))), bootstrap=0.02)[1]
+            for _ in range(reps)
+        ]
+    )
 
     # Standard error of the mean, not the standard deviation.  Dividing by
     # ps.std() tolerates a deviation sqrt(reps) times too large: p-values
     # drawn from beta(0.5,2) -- mean 0.174, grossly non-uniform -- pass that
     # version, as do p-values uniform on [0,0.5].
-    tstat = (ps.mean() - 1/2)/(ps.std()/np.sqrt(reps))
+    tstat = (ps.mean() - 1 / 2) / (ps.std() / np.sqrt(reps))
 
-    assert np.abs(tstat) < 2, (
-        f"mean p-value {ps.mean():.4f} is not 1/2 (t = {tstat:.3f})")
+    assert (
+        np.abs(tstat) < 2
+    ), f"mean p-value {ps.mean():.4f} is not 1/2 (t = {tstat:.3f})"
 
-if __name__=='__main__':
+
+if __name__ == "__main__":
     test_sm_against_R()
     test_sm_type1()
 #+end_src
@@ -3052,7 +3160,10 @@ import numpy as np
 from metrics_miscellany.estimators import ols
 from metrics_miscellany.random import permutation as _permutation
 
-def randomization_inference(vars,X,y,permute_levels=None,R=None,tol=1e-3,VERBOSE=False,return_draws=False):
+
+def randomization_inference(
+    vars, X, y, permute_levels=None, R=None, tol=1e-3, VERBOSE=False, return_draws=False
+):
     """
     Return p-values associated with hypothesis that coefficients
     associated with vars are jointly equal to zero.
@@ -3066,33 +3177,38 @@ def randomization_inference(vars,X,y,permute_levels=None,R=None,tol=1e-3,VERBOSE
     Ethan Ligon                                       June 2021
     """
 
-    assert np.all([v in X.columns for v in vars]), "vars must correspond to columns of X."
+    assert np.all(
+        [v in X.columns for v in vars]
+    ), "vars must correspond to columns of X."
 
-    b,V = ols(X,y)
+    b, V = ols(X, y)
 
     beta = b.squeeze()[vars]
-    chi2 = chi2_test(beta,V,R=R)[0]
+    chi2 = chi2_test(beta, V, R=R)[0]
 
     last = np.inf
     p = 0
     i = 0
     Chi2 = []
-    while (np.linalg.norm(p-last)>tol) or (i < 30):
+    while (np.linalg.norm(p - last) > tol) or (i < 30):
         last = p
         P = _permutation(X, columns=vars, permute_levels=permute_levels)
 
-        myX = pd.concat([X.loc[:,X.columns.difference(vars)],P],axis=1)
-        b,V = ols(myX,y)
-        Chi2.append(chi2_test(b.squeeze()[vars],V,R=R)[0])
-        p = (chi2<Chi2[-1])/(i+1) + last*i/(i+1)
+        myX = pd.concat([X.loc[:, X.columns.difference(vars)], P], axis=1)
+        b, V = ols(myX, y)
+        Chi2.append(chi2_test(b.squeeze()[vars], V, R=R)[0])
+        p = (chi2 < Chi2[-1]) / (i + 1) + last * i / (i + 1)
         i += 1
-        if VERBOSE: print("Latest chi2 (randomized,actual,p): (%6.2f,%6.2f,%6.4f)" % (Chi2[-1],chi2,p))
+        if VERBOSE:
+            print(
+                "Latest chi2 (randomized,actual,p): (%6.2f,%6.2f,%6.4f)"
+                % (Chi2[-1], chi2, p)
+            )
 
     if return_draws:
-        return p,pd.Series(Chi2)
+        return p, pd.Series(Chi2)
     else:
         return p
-
 #+end_src
 
 *** Test of randomization inference
@@ -3104,6 +3220,7 @@ which pytest picked up during collection rather than as a real test.
 Each scenario is now a proper =test_*= function with a seeded RNG and
 a numeric assertion about the returned p-value.
 """
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -3114,22 +3231,22 @@ from metrics_miscellany import tests as mm_tests
 def _build_design(seed, n=400, p=0.5):
     """Construct a small (n, X, Y_no_effect, Y_with_effect) fixture."""
     rng = np.random.default_rng(seed)
-    C = pd.DataFrame({'Female': rng.binomial(1, p, size=n)})
-    C['Male'] = 1 - C['Female']
+    C = pd.DataFrame({"Female": rng.binomial(1, p, size=n)})
+    C["Male"] = 1 - C["Female"]
     delta = pd.Series({"Female": 1.0, "Male": 0.5})
 
-    T1 = pd.Series(rng.standard_normal(n), name='Treatment1')
-    T2 = pd.Series(rng.standard_normal(n), name='Treatment2')
+    T1 = pd.Series(rng.standard_normal(n), name="Treatment1")
+    T2 = pd.Series(rng.standard_normal(n), name="Treatment2")
 
     TC = C.multiply(T1, axis=0)
-    TC.columns = ['TxFemale', 'TxMale']
+    TC.columns = ["TxFemale", "TxMale"]
 
     X = pd.concat([T1, T2, C, TC], axis=1).iloc[:, :-1]
     dC = C @ delta
-    eps = pd.Series(rng.standard_normal(n), name='epsilon')
+    eps = pd.Series(rng.standard_normal(n), name="epsilon")
 
-    Y_null = (dC + eps).rename('outcome')
-    Y_alt = (T1 + T2 + dC + eps).rename('outcome')
+    Y_null = (dC + eps).rename("outcome")
+    Y_alt = (T1 + T2 + dC + eps).rename("outcome")
     return X, Y_null, Y_alt
 
 
@@ -3138,8 +3255,9 @@ def test_randomization_inference_returns_valid_pvalue():
     """No treatment effect -> p in [0, 1]; smoke test only."""
     X, Y_null, _ = _build_design(seed=0)
     np.random.seed(0)
-    p = float(mm_tests.randomization_inference(
-        ['Treatment1'], X, Y_null, VERBOSE=False))
+    p = float(
+        mm_tests.randomization_inference(["Treatment1"], X, Y_null, VERBOSE=False)
+    )
     assert 0.0 <= p <= 1.0
 
 
@@ -3148,8 +3266,7 @@ def test_randomization_inference_rejects_strong_effect():
     """A unit treatment effect at n=400 should reject at the 5% level."""
     X, _, Y_alt = _build_design(seed=1)
     np.random.seed(1)
-    p = float(mm_tests.randomization_inference(
-        ['Treatment1'], X, Y_alt, VERBOSE=False))
+    p = float(mm_tests.randomization_inference(["Treatment1"], X, Y_alt, VERBOSE=False))
     assert p < 0.05
 
 
@@ -3157,20 +3274,24 @@ def test_randomization_inference_rejects_strong_effect():
 def test_randomization_inference_with_linear_restriction():
     """Smoke-test the R-supplied path (Treatment1 == Treatment2)."""
     X, _, Y_alt = _build_design(seed=2)
-    R = pd.DataFrame({'Coefficients': [1, -1]},
-                     index=['Treatment1', 'Treatment2'])
+    R = pd.DataFrame({"Coefficients": [1, -1]}, index=["Treatment1", "Treatment2"])
     np.random.seed(2)
-    p = float(mm_tests.randomization_inference(
-        ['Treatment1', 'Treatment2'],
-        X.drop('TxFemale', axis=1), Y_alt, R=R, VERBOSE=False))
+    p = float(
+        mm_tests.randomization_inference(
+            ["Treatment1", "Treatment2"],
+            X.drop("TxFemale", axis=1),
+            Y_alt,
+            R=R,
+            VERBOSE=False,
+        )
+    )
     assert 0.0 <= p <= 1.0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     test_randomization_inference_returns_valid_pvalue()
     test_randomization_inference_rejects_strong_effect()
     test_randomization_inference_with_linear_restriction()
-
 #+end_src
 
 ** Maunchy test of sphericity
@@ -3185,33 +3306,40 @@ cite:muirhead82 p. 334.].
 import numpy as np
 from scipy.stats.distributions import chi2
 
-def maunchy(C,N):
+
+def maunchy(C, N):
     """Given a sample covariance matrix C estimating using N observations,
-       return p-value associated with test of whether the population
-       covariance matrix is proportional to the identity matrix.
+    return p-value associated with test of whether the population
+    covariance matrix is proportional to the identity matrix.
     """
 
     raise NotImplementedError
 
     m = C.shape[0]
 
-    V = np.linalg.det(C)/((np.trace(C)/m)**m)
+    V = np.linalg.det(C) / ((np.trace(C) / m) ** m)
 
-    rho = 1 - (2*m**2 + m + 2)/(6*m*(N-1))
+    rho = 1 - (2 * m**2 + m + 2) / (6 * m * (N - 1))
 
-    w2 = (m-1)*(m-2)*(m+2)*(2*m**3 + 6*m**2 + 3*m + 2)/(288*(m**2) * ((N-1)**2) * rho**2)
+    w2 = (
+        (m - 1)
+        * (m - 2)
+        * (m + 2)
+        * (2 * m**3 + 6 * m**2 + 3 * m + 2)
+        / (288 * (m**2) * ((N - 1) ** 2) * rho**2)
+    )
 
-    gamma = (((N-1)*rho)**2)*w2
+    gamma = (((N - 1) * rho) ** 2) * w2
 
-    x2 = -2*(N-1)*rho*np.log(V)  # Chi-squared statistic
+    x2 = -2 * (N - 1) * rho * np.log(V)  # Chi-squared statistic
 
-    df = (m+2)*(m-1)/2
+    df = (m + 2) * (m - 1) / 2
 
-    px2 = chi2.cdf(x2,df)
+    px2 = chi2.cdf(x2, df)
 
-    p = px2 + gamma/(((N-1)*rho)**2) * (chi2.cdf(x2,df+4) - px2)
+    p = px2 + gamma / (((N - 1) * rho) ** 2) * (chi2.cdf(x2, df + 4) - px2)
 
-    return x2,1 - px2
+    return x2, 1 - px2
 #+end_src
 **** COMMENT Test of Maunchy
 #+begin_src python :tangle metrics_miscellany/test/test_maunchy.py
@@ -3226,22 +3354,22 @@ k = 10
 Chi2 = []
 P = []
 for m in range(1000):
-    X = iid.norm.rvs(size=(N,k))
+    X = iid.norm.rvs(size=(N, k))
 
-    C = np.cov(X,rowvar=False)
-    x,p = tests.maunchy(C,N)
+    C = np.cov(X, rowvar=False)
+    x, p = tests.maunchy(C, N)
     Chi2.append(x)
     P.append(p)
 
-df = (k+2)*(k-1)/2
+df = (k + 2) * (k - 1) / 2
 
 
-range = np.linspace(np.min(Chi2),np.max(Chi2),500)
+range = np.linspace(np.min(Chi2), np.max(Chi2), 500)
 
-fig,ax = plt.subplots()
-ax.plot(range,[iid.chi2.pdf(x,df) for x in range])[0]
-ax.hist(Chi2,bins=int(np.ceil(np.sqrt(len(Chi2)))),density=True)
-#print(
+fig, ax = plt.subplots()
+ax.plot(range, [iid.chi2.pdf(x, df) for x in range])[0]
+ax.hist(Chi2, bins=int(np.ceil(np.sqrt(len(Chi2)))), density=True)
+# print(
 #+end_src
 ** Inference on eigenvalues
 Suppose we wish to test whether a covariance matrix has a structure $\Sigma =
@@ -3253,27 +3381,28 @@ implemented here.
 import numpy as np
 from scipy.stats.distributions import chi2
 
-def kr79(C,q,N):
+
+def kr79(C, q, N):
     """Given a sample mxm covariance matrix C estimating using N observations,
-       return p-value associated with test of whether the population
-       covariance matrix has last q eigenvalues equal or not, where q+k=m.
+    return p-value associated with test of whether the population
+    covariance matrix has last q eigenvalues equal or not, where q+k=m.
     """
 
     m = C.shape[0]
 
     l = np.linalg.eigvalsh(C)  # eigenvalues in *ascending* order
 
-    Q = (np.prod(l[:q])/(np.mean(l[:q])**q))**(N/2) # LR test statistic
+    Q = (np.prod(l[:q]) / (np.mean(l[:q]) ** q)) ** (N / 2)  # LR test statistic
 
-    x2 = -2*np.log(Q)  # Chi-squared statistic
+    x2 = -2 * np.log(Q)  # Chi-squared statistic
 
-    df = (q-1)*(q+2)/2
+    df = (q - 1) * (q + 2) / 2
 
-    px2 = chi2.cdf(x2,df)
+    px2 = chi2.cdf(x2, df)
 
-    #p = px2 + gamma/(((N-1)*rho)**2) * (chi2.cdf(x2,df+4) - px2)
+    # p = px2 + gamma/(((N-1)*rho)**2) * (chi2.cdf(x2,df+4) - px2)
 
-    return x2,1 - px2
+    return x2, 1 - px2
 #+end_src
 **** Test of kr79
 #+begin_src python :tangle metrics_miscellany/test/test_kr79.py
@@ -3286,6 +3415,7 @@ top-level assert -- a failure would surface as a collection error.
 Both have been wrapped in =test_*= functions; the slow simulation is
 marked accordingly.
 """
+
 import numpy as np
 import pytest
 import scipy.stats.distributions as iid
@@ -3326,11 +3456,10 @@ def test_kr79_size_under_null():
         P.append(p)
 
     ks_p = stats.kstest(P, stats.distributions.uniform.cdf).pvalue
-    assert ks_p > 0.01, (
-        f"KS p={ks_p}: KR79 p-values look non-uniform under the null.")
+    assert ks_p > 0.01, f"KS p={ks_p}: KR79 p-values look non-uniform under the null."
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     test_kr79_size_under_null()
 #+end_src
 ** Cragg-Donald Reduced Rank Test
@@ -3365,12 +3494,13 @@ def cragg_donald(X, Q):
 
     Returns a (statistic, p-value) pair.
     """
-    n, k = Q.shape   # k is the number of instruments l
-    m = X.shape[1]   # number of endogenous regressors
+    n, k = Q.shape  # k is the number of instruments l
+    m = X.shape[1]  # number of endogenous regressors
 
     assert k >= m, (
         f"Cragg-Donald requires at least as many instruments as endogenous "
-        f"regressors (got l={k}, m={m}).")
+        f"regressors (got l={k}, m={m})."
+    )
 
     teststat = utils.inv(X.T @ X.resid(Q)) @ (X.T @ X.proj(Q))
     teststat = (n - k) * teststat.eig()[0].min()
@@ -3379,12 +3509,12 @@ def cragg_donald(X, Q):
     pvalue = 1 - chi2(df).cdf(teststat)
 
     return teststat, pvalue
-
 #+end_src
 *** Test of Cragg-Donald
 #+begin_src python :tangle metrics_miscellany/test/test_cragg_donald.py
 """Check size of cragg_donald reduced rank test.
 """
+
 import datamat as dm
 from metrics_miscellany.tests import cragg_donald
 from scipy.stats.distributions import norm
@@ -3416,7 +3546,8 @@ def test_cragg_donald_rejects_under_full_rank():
         f"With a strong full-rank Pi (rank=m=3, l=5, n=1000) the test "
         f"should reject decisively; got p={p}.  This catches the previous "
         f"=df = n - X.shape[1] + 1= bug, which left the test never able to "
-        f"reject.")
+        f"reject."
+    )
 
 
 @pytest.mark.slow
@@ -3424,6 +3555,7 @@ def test_cragg_donald_size_under_null():
     """Under the null (rank(Pi) = m - 1) the p-values should be
     (approximately) uniform.  Permissive KS bound to avoid CI flakiness."""
     from scipy.stats import kstest
+
     rng = np.random.default_rng(1)
     n, m, l = 1_000, 3, 5
     Z = dm.DataMat(rng.standard_normal((n, l)))
@@ -3436,11 +3568,9 @@ def test_cragg_donald_size_under_null():
         _, p = cragg_donald(X, Z)
         Ps.append(float(p))
     avg = np.mean(Ps)
-    ks_p = kstest(Ps, 'uniform').pvalue
-    assert abs(avg - 0.5) < 0.1, (
-        f"Average p-value {avg:.3f} suspiciously far from 0.5.")
-    assert ks_p > 0.01, (
-        f"KS p={ks_p:.4f}: under H_0 the p-values look non-uniform.")
+    ks_p = kstest(Ps, "uniform").pvalue
+    assert abs(avg - 0.5) < 0.1, f"Average p-value {avg:.3f} suspiciously far from 0.5."
+    assert ks_p > 0.01, f"KS p={ks_p:.4f}: under H_0 the p-values look non-uniform."
 
 
 def test_cragg_donald_asserts_overid():
@@ -3455,7 +3585,7 @@ def test_cragg_donald_asserts_overid():
         cragg_donald(X, Z)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     test_cragg_donald_rejects_under_full_rank()
     test_cragg_donald_size_under_null()
     test_cragg_donald_asserts_overid()
@@ -3470,17 +3600,18 @@ Begin with wrapping the numpy qr decomposition to return dataframes.
 import numpy as np
 import pandas as pd
 
+
 def qr(X):
     """
     Pandas-friendly QR decomposition.
     """
-    assert X.shape[0]>=X.shape[1]
+    assert X.shape[0] >= X.shape[1]
 
-    Q,R = np.linalg.qr(X)
-    Q = pd.DataFrame(Q,index=X.index, columns=X.columns)
-    R = pd.DataFrame(R,index=X.columns, columns=X.columns)
+    Q, R = np.linalg.qr(X)
+    Q = pd.DataFrame(Q, index=X.index, columns=X.columns)
+    R = pd.DataFrame(R, index=X.columns, columns=X.columns)
 
-    return Q,R
+    return Q, R
 #+end_src
 
 *** Leverage
@@ -3512,9 +3643,11 @@ def _projection_diagonal(X):
 
 def _frame(a):
     a = np.asarray(a, dtype=float)
-    return pd.DataFrame(a,
-                        index=[f"r{i}" for i in range(a.shape[0])],
-                        columns=[f"c{j}" for j in range(a.shape[1])])
+    return pd.DataFrame(
+        a,
+        index=[f"r{i}" for i in range(a.shape[0])],
+        columns=[f"c{j}" for j in range(a.shape[1])],
+    )
 
 
 def test_leverage_matches_projection_diagonal():
@@ -3530,7 +3663,7 @@ def test_leverage_sums_to_rank_not_column_count():
     deficient even though they no longer span col(X).
     """
     A = np.random.default_rng(1).standard_normal((8, 3))
-    A[:, 2] = A[:, 0]                      # rank 2, three columns
+    A[:, 2] = A[:, 0]  # rank 2, three columns
     X = _frame(A)
 
     assert np.linalg.matrix_rank(X) == 2
@@ -3542,7 +3675,7 @@ def test_leverage_accepts_wide_X():
     """n < k must give an answer, not an assertion."""
     X = _frame(np.random.default_rng(2).standard_normal((3, 5)))
     h = leverage(X)
-    assert np.allclose(h, 1.0)             # rows of a wide X are fully levered
+    assert np.allclose(h, 1.0)  # rows of a wide X are fully levered
     assert np.allclose(h, _projection_diagonal(X))
 
 
@@ -3559,7 +3692,7 @@ def test_leverage_sums_to_rank_full_rank_cases(n, k):
     assert np.isclose(float(np.sum(leverage(X))), float(np.linalg.matrix_rank(X)))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     test_leverage_matches_projection_diagonal()
     test_leverage_sums_to_rank_not_column_count()
     print("smoke OK")
@@ -3585,7 +3718,7 @@ def hat_factory(X):
     Q = qr(X)[0]
 
     def hat(y):
-        return Q@(Q.T@y)
+        return Q @ (Q.T @ y)
 
     return hat
 #+end_src
@@ -3595,30 +3728,32 @@ def hat_factory(X):
 #+begin_src python :tangle metrics_miscellany/utils.py
 import pandas as pd
 
-def cov_nearest(V,threshold=1e-12):
+
+def cov_nearest(V, threshold=1e-12):
     """
     Return a positive definite matrix which is "nearest" to the symmetric matrix V,
     with the smallest eigenvalue not less than threshold.
     """
-    s,U = np.linalg.eigh((V+V.T)/2) # Eigenvalue decomposition of symmetric matrix
+    s, U = np.linalg.eigh((V + V.T) / 2)  # Eigenvalue decomposition of symmetric matrix
 
-    s = np.maximum(s,threshold)
+    s = np.maximum(s, threshold)
 
-    return V*0 + U@np.diag(s)@U.T  # Trick preserves attributes of dataframe V
+    return V * 0 + U @ np.diag(s) @ U.T  # Trick preserves attributes of dataframe V
 #+end_src
 ** Trimming
 #+begin_src python :tangle metrics_miscellany/utils.py
 import pandas as pd
 import numpy as np
 
-def trim(df,alpha):
+
+def trim(df, alpha):
     """Trim values below alpha quantile and above (1-alpha) quantile.
 
     This maps individual extreme elements of df to NaN.
     """
     xmin = df.quantile(alpha)
-    xmax = df.quantile(1-alpha)
-    return df.where((df>=xmin)*(df<=xmax),np.nan)
+    xmax = df.quantile(1 - alpha)
+    return df.where((df >= xmin) * (df <= xmax), np.nan)
 #+end_src
 
 * Random
@@ -3626,6 +3761,7 @@ def trim(df,alpha):
 #+begin_src python :tangle metrics_miscellany/random.py
 import numpy as np
 import pandas as pd
+
 
 def permutation(df, columns=None, permute_levels=None):
     """Return a DataFrame whose values along =columns= are a random
@@ -3658,16 +3794,18 @@ def permutation(df, columns=None, permute_levels=None):
     sub = df.loc[:, columns]
 
     if permute_levels is None:
-        return pd.DataFrame(np.random.permutation(sub.values),
-                            index=df.index, columns=columns)
+        return pd.DataFrame(
+            np.random.permutation(sub.values), index=df.index, columns=columns
+        )
 
     if isinstance(permute_levels, str):
         permute_levels = [permute_levels]
 
     fixed = [n for n in df.index.names if n not in permute_levels]
     if not fixed:
-        return pd.DataFrame(np.random.permutation(sub.values),
-                            index=df.index, columns=columns)
+        return pd.DataFrame(
+            np.random.permutation(sub.values), index=df.index, columns=columns
+        )
 
     # Pivot so each row is one permute-level coordinate and the columns
     # enumerate fixed-level coordinates (times the original variables).
@@ -3677,8 +3815,9 @@ def permutation(df, columns=None, permute_levels=None):
     # actually realizes the permutation: each permute-level coordinate
     # is reassigned the block of values from a randomly chosen other
     # coordinate, while the alignment along the fixed levels is kept.
-    shuffled = pd.DataFrame(np.random.permutation(wide.values),
-                            index=wide.index, columns=wide.columns)
+    shuffled = pd.DataFrame(
+        np.random.permutation(wide.values), index=wide.index, columns=wide.columns
+    )
 
     long = shuffled.stack(fixed)
     long = long.reindex(df.index)
@@ -3687,7 +3826,6 @@ def permutation(df, columns=None, permute_levels=None):
         long = long.to_frame()
     long.columns = columns
     return long
-
 #+end_src
 *** Test permutation
 #+begin_src python :tangle metrics_miscellany/test/test_permutation.py
@@ -3700,14 +3838,14 @@ def test_permutation_invariant_across_fixed_level():
     """When the values are constant across the fixed level =t=, the
     permuted output must also be constant across =t=."""
     np.random.seed(0)
-    T = pd.Series(np.random.rand(10) > .5)
-    df = pd.DataFrame({'a': T, 'b': T}).stack()
+    T = pd.Series(np.random.rand(10) > 0.5)
+    df = pd.DataFrame({"a": T, "b": T}).stack()
     df = df + 0
-    df.index.names = ['i', 't']
+    df.index.names = ["i", "t"]
 
-    p = mm_random.permutation(df, permute_levels=['i'])
+    p = mm_random.permutation(df, permute_levels=["i"])
 
-    assert np.all(p.unstack('t').std(axis=1) == 0)
+    assert np.all(p.unstack("t").std(axis=1) == 0)
 
 
 def test_permutation_actually_permutes():
@@ -3718,14 +3856,14 @@ def test_permutation_actually_permutes():
     """
     n = 50
     T = np.arange(n, dtype=float)
-    df = pd.DataFrame({'a': T, 'b': T + 1000.0}).stack().to_frame('v')
-    df.index.names = ['i', 't']
+    df = pd.DataFrame({"a": T, "b": T + 1000.0}).stack().to_frame("v")
+    df.index.names = ["i", "t"]
 
     np.random.seed(2)
-    p = mm_random.permutation(df, permute_levels=['i'])
+    p = mm_random.permutation(df, permute_levels=["i"])
 
-    mapping_a = p.xs('a', level='t')['v'].values
-    mapping_b = p.xs('b', level='t')['v'].values - 1000.0
+    mapping_a = p.xs("a", level="t")["v"].values
+    mapping_b = p.xs("b", level="t")["v"].values - 1000.0
 
     # The block across fixed levels stays paired:
     np.testing.assert_array_equal(mapping_a, mapping_b)
@@ -3738,18 +3876,17 @@ def test_permutation_actually_permutes():
 def test_permutation_full_axis():
     """With permute_levels=None we get a full permutation of rows."""
     np.random.seed(3)
-    df = pd.DataFrame({'v': np.arange(20.0)})
+    df = pd.DataFrame({"v": np.arange(20.0)})
     p = mm_random.permutation(df)
-    assert sorted(p['v'].tolist()) == list(range(20))
+    assert sorted(p["v"].tolist()) == list(range(20))
     # And it actually shuffles (with overwhelming probability).
-    assert not np.array_equal(p['v'].values, np.arange(20.0))
+    assert not np.array_equal(p["v"].values, np.arange(20.0))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     test_permutation_invariant_across_fixed_level()
     test_permutation_actually_permutes()
     test_permutation_full_axis()
-
 #+end_src
 
 * Tangling hygiene
@@ -3777,16 +3914,14 @@ PACKAGE = pathlib.Path(__file__).resolve().parent.parent
 
 
 def _modules():
-    return sorted(
-        p for p in PACKAGE.rglob("*.py")
-        if "__pycache__" not in p.parts
-    )
+    return sorted(p for p in PACKAGE.rglob("*.py") if "__pycache__" not in p.parts)
 
 
 def _top_level_definitions(path):
     tree = ast.parse(path.read_text(), filename=str(path))
     return [
-        node.name for node in tree.body
+        node.name
+        for node in tree.body
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
     ]
 
@@ -3799,8 +3934,7 @@ def test_no_duplicate_top_level_definitions(path):
     shadowed definition fails silently rather than loudly.
     """
     duplicates = {
-        name: n for name, n in Counter(_top_level_definitions(path)).items()
-        if n > 1
+        name: n for name, n in Counter(_top_level_definitions(path)).items() if n > 1
     }
     assert not duplicates, (
         f"{path.relative_to(PACKAGE.parent)} defines "
@@ -3810,7 +3944,7 @@ def test_no_duplicate_top_level_definitions(path):
     )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     for p in _modules():
         test_no_duplicate_top_level_definitions(p)
     print("smoke OK")

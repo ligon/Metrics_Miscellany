@@ -3,12 +3,13 @@ from numpy.linalg import lstsq
 import warnings
 import pandas as pd
 from . import gmm
-from . GMM_class import GMM
+from .GMM_class import GMM
 from . import utils
 from datamat import DataMat, DataVec
 import datamat as dm
 
-def ols(X,y,cov_type='HC3',PSD_COV=False):
+
+def ols(X, y, cov_type="HC3", PSD_COV=False):
     """OLS estimator of b in y = Xb + u.
 
     Returns both estimate b as well as an estimate of Var(b).
@@ -21,35 +22,37 @@ def ols(X,y,cov_type='HC3',PSD_COV=False):
     set to a positive float, then this will be taken to be the smallest eigenvalue
     of the 'corrected' matrix.
     """
-    n,k = X.shape
+    n, k = X.shape
 
     Xv = np.asarray(X)
     yv = np.asarray(y).ravel()
 
-    b_vals,_,_,_ = np.linalg.lstsq(Xv, yv, rcond=None)
-    b = pd.DataFrame({'Coefficients': b_vals}, index=X.columns)
+    b_vals, _, _, _ = np.linalg.lstsq(Xv, yv, rcond=None)
+    b = pd.DataFrame({"Coefficients": b_vals}, index=X.columns)
     e = yv - Xv @ b_vals
 
     XX = Xv.T @ Xv
     XXinv = np.linalg.inv(XX)
 
-    if cov_type == 'OLS':
+    if cov_type == "OLS":
         if np.linalg.eigh(XX)[0].min() < 0:
             s_xx, U_xx = np.linalg.eigh((XX + XX.T) / 2)
             XX = U_xx @ np.diag(np.maximum(s_xx, 1e-12)) @ U_xx.T
             XXinv = np.linalg.inv(XX)
-            warnings.warn("X'X not positive (semi-) definite.  Correcting!  Estimated variances should not be affected.")
+            warnings.warn(
+                "X'X not positive (semi-) definite.  Correcting!  Estimated variances should not be affected."
+            )
         V = np.var(e, ddof=0) * XXinv
-    elif cov_type in ('HC0', 'HC1', 'HC2', 'HC3'):
-        h = np.einsum('ij,jk,ik->i', Xv, XXinv, Xv)  # hat matrix diagonal
-        if cov_type == 'HC0':
-            w = e ** 2
-        elif cov_type == 'HC1':
-            w = e ** 2 * (n / (n - k))
-        elif cov_type == 'HC2':
-            w = e ** 2 / (1 - h)
-        elif cov_type == 'HC3':
-            w = e ** 2 / (1 - h) ** 2
+    elif cov_type in ("HC0", "HC1", "HC2", "HC3"):
+        h = np.einsum("ij,jk,ik->i", Xv, XXinv, Xv)  # hat matrix diagonal
+        if cov_type == "HC0":
+            w = e**2
+        elif cov_type == "HC1":
+            w = e**2 * (n / (n - k))
+        elif cov_type == "HC2":
+            w = e**2 / (1 - h)
+        elif cov_type == "HC3":
+            w = e**2 / (1 - h) ** 2
         V = XXinv @ (Xv.T * w) @ Xv @ XXinv
     else:
         raise ValueError("Unknown type of covariance matrix.")
@@ -57,17 +60,21 @@ def ols(X,y,cov_type='HC3',PSD_COV=False):
     if PSD_COV:
         if PSD_COV is True:
             PSD_COV = (b**2).min()
-        s,U = np.linalg.eigh((V+V.T)/2)
-        if s.min()<PSD_COV:
+        s, U = np.linalg.eigh((V + V.T) / 2)
+        if s.min() < PSD_COV:
             oldV = V
-            V = U@np.diag(np.maximum(s,PSD_COV))@U.T
-            warnings.warn("Estimated covariance matrix not positive (semi-) definite.\nCorrecting! Norm of difference is %g." % np.linalg.norm(oldV-V))
+            V = U @ np.diag(np.maximum(s, PSD_COV)) @ U.T
+            warnings.warn(
+                "Estimated covariance matrix not positive (semi-) definite.\nCorrecting! Norm of difference is %g."
+                % np.linalg.norm(oldV - V)
+            )
 
-    V = pd.DataFrame(V,index=X.columns,columns=X.columns)
+    V = pd.DataFrame(V, index=X.columns, columns=X.columns)
 
-    return b,V
+    return b, V
 
-def restricted_tsls(y, X, R=None, r=None, Z=None, cov='HC3'):
+
+def restricted_tsls(y, X, R=None, r=None, Z=None, cov="HC3"):
     """
     Estimate b in y = Xb + u subject to Rb = r.
 
@@ -114,19 +121,19 @@ def restricted_tsls(y, X, R=None, r=None, Z=None, cov='HC3'):
         m, _k = R.shape
         assert _k == k, (
             "Matrix of restrictions must be conformable with the vector "
-            "of parameters.")
+            "of parameters."
+        )
         if r is None:
             raise ValueError("r must be supplied when R is supplied.")
         r_vec = np.asarray(r).reshape(-1)
-        assert r_vec.shape[0] == m, (
-            "r and R must agree on the number of restrictions.")
+        assert r_vec.shape[0] == m, "r and R must agree on the number of restrictions."
     else:
         m = 0
         r_vec = None
 
     assert _l + m >= k, (
-        f"Need #instruments ({_l}) + #restrictions ({m}) >= "
-        f"#parameters ({k}).")
+        f"Need #instruments ({_l}) + #restrictions ({m}) >= " f"#parameters ({k})."
+    )
 
     Qzz = Z.T @ Z / N
     Qxz = X.T @ Z / N
@@ -149,20 +156,19 @@ def restricted_tsls(y, X, R=None, r=None, Z=None, cov='HC3'):
         lhs_arr[k:, :k] = Rv
         rhs_arr = np.concatenate([np.asarray(rhs_b).reshape(-1), r_vec])
         sol = np.linalg.solve(lhs_arr, rhs_arr)
-        b = pd.Series(sol[:k], index=param_labels, name='Coefficients')
-        lm = pd.Series(sol[k:], index=R.index, name='lm')
+        b = pd.Series(sol[:k], index=param_labels, name="Coefficients")
+        lm = pd.Series(sol[k:], index=R.index, name="lm")
     else:
-        b_arr = np.linalg.solve(np.asarray(Q),
-                                np.asarray(rhs_b).reshape(-1))
-        b = pd.Series(b_arr, index=param_labels, name='Coefficients')
+        b_arr = np.linalg.solve(np.asarray(Q), np.asarray(rhs_b).reshape(-1))
+        b = pd.Series(b_arr, index=param_labels, name="Coefficients")
         lm = None
 
     # Residuals using X alone -- the restrictions add no observations.
     e = y - X @ b
 
-    if cov in ('HC2', 'HC3'):
+    if cov in ("HC2", "HC3"):
         h = utils.leverage(X)
-        if cov == 'HC2':
+        if cov == "HC2":
             e = e / np.sqrt(1 - h)
         else:
             e = e / (1 - h)
@@ -182,32 +188,38 @@ def restricted_tsls(y, X, R=None, r=None, Z=None, cov='HC3'):
         V_unr_v = np.asarray(V_unr)
         middle = np.linalg.inv(Rv @ V_unr_v @ Rv.T)
         P = np.eye(k) - V_unr_v @ Rv.T @ middle @ Rv
-        V_b = pd.DataFrame(P @ V_unr_v @ P.T,
-                           index=param_labels, columns=param_labels)
+        V_b = pd.DataFrame(P @ V_unr_v @ P.T, index=param_labels, columns=param_labels)
     else:
         V_b = V_unr
 
-    if cov == 'HC1':
+    if cov == "HC1":
         V_b = V_b * (N / (N - k))
 
     if R is None:
         return b, Omega, V_b
     return b, lm, Omega, V_b
 
-def tsls(X,y,Z,return_Omega=False,**kwargs):
+
+def tsls(X, y, Z, return_Omega=False, **kwargs):
     """
     Two-stage least squares estimator.
     """
-    b,Omega,Vb = restricted_tsls(y,X,Z=Z,**kwargs)
+    b, Omega, Vb = restricted_tsls(y, X, Z=Z, **kwargs)
 
     if return_Omega:
-        return b,Omega
+        return b, Omega
     else:
-        return b,Vb
+        return b, Vb
 
-def factor_analysis(X,n_components=None,noise_variance_init=None,
-                    max_its=1000,tol=1e-2,
-                    svd_method='eig'):
+
+def factor_analysis(
+    X,
+    n_components=None,
+    noise_variance_init=None,
+    max_its=1000,
+    tol=1e-2,
+    svd_method="eig",
+):
     """Fit the FactorAnalysis model to X using SVD based MLE approach.
 
     Parameters
@@ -237,9 +249,9 @@ def factor_analysis(X,n_components=None,noise_variance_init=None,
     else:
         if len(noise_variance_init) != n_features:
             raise ValueError(
-                    "noise_variance_init dimension does not accord "
-                    "with number of features : %d != %d"
-                    % (len(noise_variance_init), n_features)
+                "noise_variance_init dimension does not accord "
+                "with number of features : %d != %d"
+                % (len(noise_variance_init), n_features)
             )
         psi = np.array(noise_variance_init)
 
@@ -248,29 +260,29 @@ def factor_analysis(X,n_components=None,noise_variance_init=None,
     SMALL = 1e-12
 
     def squared_norm(x):
-        return np.linalg.norm(x)**2
+        return np.linalg.norm(x) ** 2
 
-    def self_inner(X,min_obs=None):
+    def self_inner(X, min_obs=None):
         """Compute inner product X.T@X, allowing for possibility of missing data."""
-        n,m=X.shape
+        n, m = X.shape
 
-        if n<m:
-            axis=1
-            N=m
+        if n < m:
+            axis = 1
+            N = m
         else:
-            axis=0
-            N=n
+            axis = 0
+            N = n
 
         mX = np.ma.masked_invalid(X)
 
-        xbar = np.mean(mX,axis=axis)
+        xbar = np.mean(mX, axis=axis)
 
         if axis:
-            C=(N-1)*np.ma.cov(mX)
+            C = (N - 1) * np.ma.cov(mX)
         else:
-            C=(N-1)*np.ma.cov(mX.T)
+            C = (N - 1) * np.ma.cov(mX.T)
 
-        return (C + N*np.outer(xbar,xbar)).data
+        return (C + N * np.outer(xbar, xbar)).data
 
     # we'll modify svd outputs to return unexplained variance
     # to allow for unified computation of loglikelihood
@@ -280,35 +292,37 @@ def factor_analysis(X,n_components=None,noise_variance_init=None,
         # caller what to do instead of NameError'ing partway through.
         raise NotImplementedError(
             "factor_analysis(svd_method='lapack') is unfinished. "
-            "Use svd_method='eig'.")
+            "Use svd_method='eig'."
+        )
 
     elif svd_method == "randomized":
         # Likewise: the branch references self.random_state /
         # self.iterated_power, which don't exist in this free function.
         raise NotImplementedError(
             "factor_analysis(svd_method='randomized') is unfinished. "
-            "Use svd_method='eig'.")
+            "Use svd_method='eig'."
+        )
 
-    elif svd_method == 'eig':
+    elif svd_method == "eig":
 
         def my_svd(P):
 
-            sigmas,v=np.linalg.eigh(P)
+            sigmas, v = np.linalg.eigh(P)
             vt = v.T
 
-            order=np.argsort(-sigmas)
-            sigmas=sigmas[order]
+            order = np.argsort(-sigmas)
+            sigmas = sigmas[order]
 
             # Truncate rank of representation using Kaiser criterion (positive eigenvalues)
-            vt=vt[order,:]
-            vt=vt[sigmas>0,:]
-            s=np.sqrt(sigmas[sigmas>0])
+            vt = vt[order, :]
+            vt = vt[sigmas > 0, :]
+            s = np.sqrt(sigmas[sigmas > 0])
 
             if n_components is not None and len(s) > n_components:
-                vt=vt[:n_components,:]
-                s=s[:n_components]
+                vt = vt[:n_components, :]
+                s = s[:n_components]
 
-            r=len(s)
+            r = len(s)
 
             return s, vt, squared_norm(P) - squared_norm(s)
 
@@ -316,12 +330,12 @@ def factor_analysis(X,n_components=None,noise_variance_init=None,
     for i in range(max_its):
         # SMALL helps numerics
         sqrt_psi = np.sqrt(psi) + SMALL
-        s, Vt, unexp_var = my_svd(P@np.diag(1/(psi * n_samples)))
+        s, Vt, unexp_var = my_svd(P @ np.diag(1 / (psi * n_samples)))
         s **= 2
         # Use 'maximum' here to avoid sqrt problems.
         W = np.sqrt(np.maximum(s - 1.0, 0.0))[:, np.newaxis] * Vt
         del Vt
-        W = W.squeeze()*sqrt_psi
+        W = W.squeeze() * sqrt_psi
 
         # loglikelihood
         ll = llconst + np.sum(np.log(s))
@@ -346,47 +360,54 @@ def factor_analysis(X,n_components=None,noise_variance_init=None,
 
     return W, psi
 
-def fwl_regression_step(D,X):
+
+def fwl_regression_step(D, X):
     """Regress each datamat in dictionary D on X.
-       Return a dictionary of residuals, and a dictionary of least-squares coefficients.
+    Return a dictionary of residuals, and a dictionary of least-squares coefficients.
     """
     b = {}
     u = {}
-    if len(D)==0: return D,{}
+    if len(D) == 0:
+        return D, {}
 
-    for k,v in D.items():
+    for k, v in D.items():
         b[k] = X.lstsq(v)
         u[k] = dm.DataMat(v.resid(X))
 
-    return u,b
+    return u, b
 
-def fwl_regression(D,B=None,U=None):
+
+def fwl_regression(D, B=None, U=None):
     """Regress each datamat in dictionary D on the last element X of D.
-       Iterate.
+    Iterate.
 
-       Return a dictionary of residuals, and a dictionary of least-squares coefficients.
+    Return a dictionary of residuals, and a dictionary of least-squares coefficients.
     """
-    if B is None: B={}
-    if U is None: U={}
+    if B is None:
+        B = {}
+    if U is None:
+        U = {}
 
-    if len(D)==0:
-        return {},{}
-    elif len(D)==1:
-        return U,B
+    if len(D) == 0:
+        return {}, {}
+    elif len(D) == 1:
+        return U, B
     else:
-        xk,x = D.popitem()
-        D,B[xk] = fwl_regression_step(D,x)
+        xk, x = D.popitem()
+        D, B[xk] = fwl_regression_step(D, x)
         U[xk] = D.copy()
-        return fwl_regression(D,B=B,U=U)
+        return fwl_regression(D, B=B, U=U)
 
-def reconstruct_coefficients_from_fwl(B: dict,as_dict=False):
+
+def reconstruct_coefficients_from_fwl(B: dict, as_dict=False):
     """
     Reconstructs OLS coefficient vectors from FWL inputs,
     generalized for matrix regressors.
     """
     # ## 1. Infer the dependent variable name ##
     top_level_keys = set(B.keys())
-    if len(top_level_keys)==0: return {}
+    if len(top_level_keys) == 0:
+        return {}
 
     # Arbitrarily pick the first variable's sub-dictionary to inspect its keys
     first_var_key = next(iter(B))
@@ -422,46 +443,48 @@ def reconstruct_coefficients_from_fwl(B: dict,as_dict=False):
         coeffs[current_var].name = dep_var_name
 
     # Reverse order of dict
-    coeffs = {k:coeffs[k] for k in reversed(list(coeffs.keys()))}
+    coeffs = {k: coeffs[k] for k in reversed(list(coeffs.keys()))}
 
     if as_dict:
         return coeffs
     else:
-        return dm.concat(coeffs,levelnames=True).squeeze()
+        return dm.concat(coeffs, levelnames=True).squeeze()
 
-def linear_gmm(X,y,Z,W=None,return_Omega=False):
+
+def linear_gmm(X, y, Z, W=None, return_Omega=False):
     """
     Linear GMM estimator.
     """
 
-    if W is None: # Use 2sls to get initial estimate of W
-        b1,Omega1 = tsls(X,y,Z,return_Omega=True)
+    if W is None:  # Use 2sls to get initial estimate of W
+        b1, Omega1 = tsls(X, y, Z, return_Omega=True)
         W = utils.inv(Omega1)
         # Forward return_Omega through the recursive call so callers asking
         # for Omega on a default-W invocation actually receive it.
-        return linear_gmm(X,y,Z,W=W,return_Omega=return_Omega)
+        return linear_gmm(X, y, Z, W=W, return_Omega=return_Omega)
     else:
-        n,k = X.shape
+        n, k = X.shape
 
-        Qxz = X.T@Z/n
+        Qxz = X.T @ Z / n
 
-        b = lstsq(Qxz@W@Qxz.T,Qxz@W@Z.T@y/n,rcond=None)[0]
+        b = lstsq(Qxz @ W @ Qxz.T, Qxz @ W @ Z.T @ y / n, rcond=None)[0]
 
-        b = pd.Series(b.squeeze(),index=X.columns)
+        b = pd.Series(b.squeeze(), index=X.columns)
 
         # Cov matrix
-        e = y.squeeze() - X@b
+        e = y.squeeze() - X @ b
 
-        #Omega = Z.T@(e**2).dg()@Z/n
+        # Omega = Z.T@(e**2).dg()@Z/n
         # Rather than forming even a sparse nxn matrix, just use element-by-element multiplication
         ZTe = Z.T.multiply(e)
-        Omega = ZTe@ZTe.T/n
+        Omega = ZTe @ ZTe.T / n
 
         if return_Omega:
-            return b,Omega
+            return b, Omega
         else:
-            Vb = utils.inv(Qxz@utils.inv(Omega)@Qxz.T)/n
-            return b,Vb
+            Vb = utils.inv(Qxz @ utils.inv(Omega) @ Qxz.T) / n
+            return b, Vb
+
 
 def restricted_linear_gmm(X, y, Z, R, r, W=None, return_Omega=False):
     """
@@ -471,36 +494,37 @@ def restricted_linear_gmm(X, y, Z, R, r, W=None, return_Omega=False):
     copy-paste of =linear_gmm= sitting underneath =raise NotImplementedError=;
     it has been removed to keep the function honest.
     """
-    raise NotImplementedError(
-        "restricted_linear_gmm has not yet been implemented.")
+    raise NotImplementedError("restricted_linear_gmm has not yet been implemented.")
 
-def factor_regression(Y,X,F=None,rank=1,tol=1e-3):
 
-    if rank>1:
+def factor_regression(Y, X, F=None, rank=1, tol=1e-3):
+
+    if rank > 1:
         raise NotImplementedError("Factor regression for rank>1 is not reliable.")
 
-    N,k = Y.shape
-    def ols(X,Y):
-        N,k = Y.shape
-        XX = utils.self_inner(X)/N
-        XY = utils.matrix_product(X.T,Y)/N
-        B = np.linalg.lstsq(XX,XY,rcond=None)[0]
-        return pd.DataFrame(B,index=X.columns,columns=Y.columns)
+    N, k = Y.shape
+
+    def ols(X, Y):
+        N, k = Y.shape
+        XX = utils.self_inner(X) / N
+        XY = utils.matrix_product(X.T, Y) / N
+        B = np.linalg.lstsq(XX, XY, rcond=None)[0]
+        return pd.DataFrame(B, index=X.columns, columns=Y.columns)
 
     if F is None:
-        B = ols(X,Y)
+        B = ols(X, Y)
         F = 0
     else:
-        parms = ols(pd.concat([X,F],axis=1),Y)
-        L = parms.iloc[-rank:,:]
-        B = parms.iloc[:-rank,:]
+        parms = ols(pd.concat([X, F], axis=1), Y)
+        L = parms.iloc[-rank:, :]
+        B = parms.iloc[:-rank, :]
 
     lastF = F
-    F,s,vt = utils.svd_missing(Y - utils.matrix_product(X,B),max_rank=rank)
+    F, s, vt = utils.svd_missing(Y - utils.matrix_product(X, B), max_rank=rank)
     scale = F.std()
-    F = F.multiply(1/scale)
+    F = F.multiply(1 / scale)
 
-    if np.linalg.norm(F-lastF)>tol:
-        B,L,F = factor_regression(Y,X,F=F,rank=rank,tol=tol)
+    if np.linalg.norm(F - lastF) > tol:
+        B, L, F = factor_regression(Y, X, F=F, rank=rank, tol=tol)
 
-    return B,L,F
+    return B, L, F

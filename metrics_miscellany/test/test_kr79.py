@@ -7,6 +7,7 @@ top-level assert -- a failure would surface as a collection error.
 Both have been wrapped in =test_*= functions; the slow simulation is
 marked accordingly.
 """
+
 import numpy as np
 import pytest
 import scipy.stats.distributions as iid
@@ -47,9 +48,8 @@ def test_kr79_size_under_null():
         P.append(p)
 
     ks_p = stats.kstest(P, stats.distributions.uniform.cdf).pvalue
-    assert ks_p > 0.01, (
-        f"KS p={ks_p}: KR79 p-values look non-uniform under the null.")
+    assert ks_p > 0.01, f"KS p={ks_p}: KR79 p-values look non-uniform under the null."
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     test_kr79_size_under_null()

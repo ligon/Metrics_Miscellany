@@ -2,6 +2,7 @@ import numpy as np
 from scipy import sparse as scipy_sparse
 import pandas as pd
 
+
 def inv(A):
     """Inverse of square pandas DataFrame.
 
@@ -15,10 +16,12 @@ def inv(A):
     inverse maps back.  For the square, equally-labelled matrices this is
     used on the two conventions coincide.
     """
-    if np.isscalar(A): A = pd.DataFrame(np.array([[A]]))
+    if np.isscalar(A):
+        A = pd.DataFrame(np.array([[A]]))
 
     B = np.linalg.inv(A)
-    return A._constructor(B,index=A.columns,columns=A.index)
+    return A._constructor(B, index=A.columns, columns=A.index)
+
 
 def pinv(A):
     """Moore-Penrose pseudo-inverse of A.
@@ -27,10 +30,12 @@ def pinv(A):
     >>> np.allclose(A@pinv(A),np.eye(2))
     True
     """
-    if np.isscalar(A): A = pd.DataFrame(np.array([[A]]))
+    if np.isscalar(A):
+        A = pd.DataFrame(np.array([[A]]))
 
     B = np.linalg.pinv(A)
-    return A._constructor(B,columns=A.index,index=A.columns)
+    return A._constructor(B, columns=A.index, index=A.columns)
+
 
 def leverage(X):
     """Leverage of matrix X; i.e., diagonal of the projection matrix.
@@ -40,35 +45,40 @@ def leverage(X):
     not to X.shape[1].  See the Leverage section for why the QR
     shortcut is not used here.
     """
-    return (X*pinv(X).T).sum(axis=1)
+    return (X * pinv(X).T).sum(axis=1)
 
-def svd(A,hermitian=False):
+
+def svd(A, hermitian=False):
     """Singular value composition into U@S.dg@V.T."""
     idx = A.index
     cols = A.columns
-    u,s,vt = np.linalg.svd(A,compute_uv=True,full_matrices=False,hermitian=hermitian)
-    u = pd.DataFrame(u,index=idx)
-    vt = pd.DataFrame(vt,columns=cols)
+    u, s, vt = np.linalg.svd(
+        A, compute_uv=True, full_matrices=False, hermitian=hermitian
+    )
+    u = pd.DataFrame(u, index=idx)
+    vt = pd.DataFrame(vt, columns=cols)
     s = pd.Series(s)
 
-    return u,s,vt
+    return u, s, vt
 
-def eig(A,hermitian=False):
+
+def eig(A, hermitian=False):
     """Singular value composition into U@S.dg@V.T."""
     idx = A.index
     cols = A.columns
     if hermitian:
-        s2,u = np.linalg.eigh(A)
+        s2, u = np.linalg.eigh(A)
     else:
-        s2,u = np.linalg.eig(A)
+        s2, u = np.linalg.eig(A)
 
     s2 = np.flip(s2)
     u = np.fliplr(u)
 
-    u = pd.DataFrame(u,index=idx,columns=cols)
+    u = pd.DataFrame(u, index=idx, columns=cols)
     s2 = pd.Series(s2.squeeze())
 
-    return s2,u
+    return s2, u
+
 
 def diag(X, sparse=True):
     """Build or extract a diagonal matrix.
@@ -96,29 +106,28 @@ def diag(X, sparse=True):
     except IndexError:  # X is a Series-like 1-d
         if sparse:
             spmat = scipy_sparse.diags(X.values)
-            d = pd.DataFrame.sparse.from_spmatrix(
-                spmat, index=X.index, columns=X.index)
-            d = d.fillna(0).astype(pd.SparseDtype('float64', fill_value=0.0))
+            d = pd.DataFrame.sparse.from_spmatrix(spmat, index=X.index, columns=X.index)
+            d = d.fillna(0).astype(pd.SparseDtype("float64", fill_value=0.0))
         else:
-            d = pd.DataFrame(
-                np.diag(X.values), index=X.index, columns=X.index)
+            d = pd.DataFrame(np.diag(X.values), index=X.index, columns=X.index)
     except AttributeError:  # Not a pandas object
         d = np.diag(X)
 
     return d
 
-def outer(S,T):
-    """Outer product of two series (vectors) S & T.
-    """
-    return pd.DataFrame(np.outer(S,T),index=S.index,columns=T.index)
 
-def matrix_product(X,Y,strict=False,fillmiss=True):
+def outer(S, T):
+    """Outer product of two series (vectors) S & T."""
+    return pd.DataFrame(np.outer(S, T), index=S.index, columns=T.index)
+
+
+def matrix_product(X, Y, strict=False, fillmiss=True):
     """Compute matrix product X@Y, allowing for possibility of missing data.
 
     The "strict" flag if set requires that the names of levels of indices that vary for columns of X be in the intersection of names of levels of indices that vary for rows of Y.
     """
 
-    if strict and not all(X.columns==Y.index):  # Columns and Indices don't match.
+    if strict and not all(X.columns == Y.index):  # Columns and Indices don't match.
         X.columns = drop_vestigial_levels(X.columns)
         Y.index = drop_vestigial_levels(Y.index)
 
@@ -126,38 +135,40 @@ def matrix_product(X,Y,strict=False,fillmiss=True):
         X = X.fillna(0)
         Y = Y.fillna(0)
 
-    prod = np.dot(X,Y) #.squeeze()
+    prod = np.dot(X, Y)  # .squeeze()
 
-    if len(prod.shape)==1 or prod.shape[1]==1:
-        out = pd.Series(prod.squeeze(),index=X.index)
+    if len(prod.shape) == 1 or prod.shape[1] == 1:
+        out = pd.Series(prod.squeeze(), index=X.index)
     else:
         try:
             cols = Y.columns
         except AttributeError:
             cols = None
-        out = pd.DataFrame(prod,index=X.index,columns=cols)
+        out = pd.DataFrame(prod, index=X.index, columns=cols)
 
     return out
 
-def self_inner(X,min_obs=None):
+
+def self_inner(X, min_obs=None):
     """Compute inner product X.T@X, allowing for possibility of missing data."""
-    n,m=X.shape
+    n, m = X.shape
 
-    if n<m:
-        axis=1
-        N=m
+    if n < m:
+        axis = 1
+        N = m
     else:
-        axis=0
-        N=n
+        axis = 0
+        N = n
 
-    xbar=X.mean(axis=axis)
+    xbar = X.mean(axis=axis)
 
     if axis:
-        C=(N-1)*X.T.cov(min_periods=min_obs)
+        C = (N - 1) * X.T.cov(min_periods=min_obs)
     else:
-        C=(N-1)*X.cov(min_periods=min_obs)
+        C = (N - 1) * X.cov(min_periods=min_obs)
 
-    return C + N*np.outer(xbar,xbar)
+    return C + N * np.outer(xbar, xbar)
+
 
 def _kron_axis(left, right):
     """Build the row or column labels of a Kronecker product.
@@ -168,6 +179,7 @@ def _kron_axis(left, right):
     silently unpacks string labels character-by-character and crashes
     on numeric labels.
     """
+
     def as_tuples(idx):
         if isinstance(idx, pd.MultiIndex):
             return list(idx)
@@ -191,6 +203,7 @@ def kron(A, B, sparse=False):
     If =sparse= is True the product is computed via
     =scipy.sparse.kron= and returned as a sparse DataFrame.
     """
+
     def to_frame(M):
         if isinstance(M, pd.DataFrame):
             return M
@@ -200,8 +213,7 @@ def kron(A, B, sparse=False):
         if arr.ndim == 1:
             arr = arr.reshape((-1, 1))
         elif arr.ndim != 2:
-            raise ValueError(
-                f"kron operands must be 1-d or 2-d; got ndim={arr.ndim}.")
+            raise ValueError(f"kron operands must be 1-d or 2-d; got ndim={arr.ndim}.")
         return pd.DataFrame(arr)
 
     Af = to_frame(A)
@@ -212,48 +224,52 @@ def kron(A, B, sparse=False):
 
     if sparse:
         from scipy.sparse import kron as sp_kron
+
         k = sp_kron(Af.values, Bf.values)
         return pd.DataFrame.sparse.from_spmatrix(k, index=index, columns=columns)
 
-    return pd.DataFrame(np.kron(Af.values, Bf.values),
-                        index=index, columns=columns)
+    return pd.DataFrame(np.kron(Af.values, Bf.values), index=index, columns=columns)
+
 
 import warnings
 
-def heteropca(C,r=1,max_its=50,tol=1e-3,verbose=False):
+
+def heteropca(C, r=1, max_its=50, tol=1e-3, verbose=False):
     """Estimate r factors and factor weights of covariance matrix C."""
     from scipy.spatial import procrustes
 
     N = C - np.diag(np.diag(C))
 
-    ulast = np.zeros((N.shape[1],r))
-    u = np.zeros((N.shape[1],r))
-    u[0,0] = 1
-    ulast[-1,0] = 1
+    ulast = np.zeros((N.shape[1], r))
+    u = np.zeros((N.shape[1], r))
+    u[0, 0] = 1
+    ulast[-1, 0] = 1
 
     t = 0
 
-    while procrustes(u,ulast)[-1] >tol and t<max_its:
+    while procrustes(u, ulast)[-1] > tol and t < max_its:
         ulast = u
 
-        u,s,vt = np.linalg.svd(N,full_matrices=False,hermitian=True)
+        u, s, vt = np.linalg.svd(N, full_matrices=False, hermitian=True)
 
         s = s[:r]
-        u = u[:,:r]
+        u = u[:, :r]
 
-        Ntilde = u[:,:r]@np.diag(s[:r])@vt[:r,:]
+        Ntilde = u[:, :r] @ np.diag(s[:r]) @ vt[:r, :]
 
         N = N - np.diag(np.diag(N)) + np.diag(np.diag(Ntilde))
 
         t += 1
 
-        if t==max_its:
+        if t == max_its:
             warnings.warn("Exceeded maximum iterations (%d)" % max_its)
-        if verbose: print(f"Iteration {t}, u[0,:r]={u[0,:r]}.")
+        if verbose:
+            print(f"Iteration {t}, u[0,:r]={u[0,:r]}.")
 
-    return u,s
+    return u, s
 
-def svd_missing(A,max_rank=None,min_obs=None,heteroskedastic=False,verbose=False):
+
+def svd_missing(A, max_rank=None, min_obs=None, heteroskedastic=False, verbose=False):
     """Singular Value Decomposition with missing values
 
     Returns matrices U,S,V.T, where A~=U*S*V.T.
@@ -282,54 +298,55 @@ def svd_missing(A,max_rank=None,min_obs=None,heteroskedastic=False,verbose=False
 
     """
     # Defaults; modify by passing a tuple to heteroskedastic argument.
-    max_its=50
+    max_its = 50
     tol = 1e-3
 
-    P = self_inner(A,min_obs=min_obs) # P = A.T@A
+    P = self_inner(A, min_obs=min_obs)  # P = A.T@A
 
-    sigmas,v=np.linalg.eigh(P)
+    sigmas, v = np.linalg.eigh(P)
 
-    order=np.argsort(-sigmas)
-    sigmas=sigmas[order]
+    order = np.argsort(-sigmas)
+    sigmas = sigmas[order]
 
     # Truncate rank of representation using Kaiser criterion (positive eigenvalues)
-    v=v[:,order]
-    v=v[:,sigmas>0]
-    s=np.sqrt(sigmas[sigmas>0])
+    v = v[:, order]
+    v = v[:, sigmas > 0]
+    s = np.sqrt(sigmas[sigmas > 0])
 
     if max_rank is not None and len(s) > max_rank:
-        v=v[:,:max_rank]
-        s=s[:max_rank]
+        v = v[:, :max_rank]
+        s = s[:max_rank]
 
-    r=len(s)
+    r = len(s)
 
-    if heteroskedastic: # Interpret tuple
+    if heteroskedastic:  # Interpret tuple
         try:
-            max_its,tol = heteroskedastic
+            max_its, tol = heteroskedastic
         except TypeError:
             pass
         Pbar = P.mean()
-        v,s = heteropca(P-Pbar,r=r,max_its=max_its,tol=tol,verbose=verbose)
+        v, s = heteropca(P - Pbar, r=r, max_its=max_its, tol=tol, verbose=verbose)
 
-    if A.shape[0]==A.shape[1]: # Symmetric; v=u
-        return v,s,v.T
+    if A.shape[0] == A.shape[1]:  # Symmetric; v=u
+        return v, s, v.T
     else:
-        vs=v@np.diag(s)
+        vs = v @ np.diag(s)
 
-        u=np.zeros((A.shape[0],len(s)))
+        u = np.zeros((A.shape[0], len(s)))
         for j in range(A.shape[0]):
-            a=A.iloc[j,:].values.reshape((-1,1))
-            x=np.nonzero(~np.isnan(a))[0] # non-missing elements of vector a
-            if len(x)>=r:
-                u[j,:]=(np.linalg.pinv(vs[x,:])@a[x]).reshape(-1)
+            a = A.iloc[j, :].values.reshape((-1, 1))
+            x = np.nonzero(~np.isnan(a))[0]  # non-missing elements of vector a
+            if len(x) >= r:
+                u[j, :] = (np.linalg.pinv(vs[x, :]) @ a[x]).reshape(-1)
             else:
-                u[j,:]=np.nan
+                u[j, :] = np.nan
 
     s = pd.Series(s)
-    u = pd.DataFrame(u,index=A.index)
-    v = pd.DataFrame(v,index=A.columns)
+    u = pd.DataFrame(u, index=A.index)
+    v = pd.DataFrame(v, index=A.columns)
 
-    return u,s,v
+    return u, s, v
+
 
 def sqrtm(A, hermitian=False, tol=None):
     """
@@ -366,7 +383,8 @@ def sqrtm(A, hermitian=False, tol=None):
     if eigvals.min() < -tol:
         raise ValueError(
             "Matrix must be positive semi-definite; smallest eigenvalue "
-            f"is {eigvals.min():.4g} (tol = {tol:.4g}).")
+            f"is {eigvals.min():.4g} (tol = {tol:.4g})."
+        )
 
     eigvals_clipped = np.maximum(eigvals, 0.0)
     S = eigvecs @ np.diag(np.sqrt(eigvals_clipped)) @ eigvecs.T
@@ -375,16 +393,19 @@ def sqrtm(A, hermitian=False, tol=None):
         return pd.DataFrame(S, index=A.index, columns=A.columns)
     return S
 
+
 def cholesky(A):
     """
     Cholesky decomposition A = L@L.T; return lower-triangular L.
     """
     L = np.linalg.cholesky(A)
-    return pd.DataFrame(L,index=A.index,columns=A.columns)
+    return pd.DataFrame(L, index=A.index, columns=A.columns)
+
 
 from pandas import concat, get_dummies, MultiIndex
 
-def drop_missing(X,infinities=False):
+
+def drop_missing(X, infinities=False):
     """
     Return tuple of pd.DataFrames in X with any
     missing observations dropped.  Assumes common index.
@@ -393,29 +414,30 @@ def drop_missing(X,infinities=False):
     treated as missing values.
     """
 
-    if isinstance(X,dict):
-        return dict(zip(X.keys(),drop_missing(list(X.values()),infinities=False)))
+    if isinstance(X, dict):
+        return dict(zip(X.keys(), drop_missing(list(X.values()), infinities=False)))
 
-    for i,x in enumerate(X):
-        if type(x)==pd.Series and x.name is None:
+    for i, x in enumerate(X):
+        if type(x) == pd.Series and x.name is None:
             x.name = i
 
-    foo=pd.concat(X,axis=1)
+    foo = pd.concat(X, axis=1)
     if not infinities:
-        foo.replace(np.inf,np.nan)
-        foo.replace(-np.inf,np.nan)
+        foo.replace(np.inf, np.nan)
+        foo.replace(-np.inf, np.nan)
 
-    foo = foo.dropna(how='any')
+    foo = foo.dropna(how="any")
 
-    assert len(set(foo.columns))==len(foo.columns) # Column names must be unique!
+    assert len(set(foo.columns)) == len(foo.columns)  # Column names must be unique!
 
-    Y=[]
+    Y = []
     for x in X:
-        Y.append(foo.loc[:,pd.DataFrame(x).columns])
+        Y.append(foo.loc[:, pd.DataFrame(x).columns])
 
     return tuple(Y)
 
-def dummies(df,cols,suffix=False):
+
+def dummies(df, cols, suffix=False):
     """From a dataframe df, construct an array of indicator (dummy) variables,
     with a column for every unique tuple of values in df[cols].  The list
     =cols= can mix names of regular columns of df with names of levels of a
@@ -454,7 +476,7 @@ def dummies(df,cols,suffix=False):
     v = get_dummies(tuples).astype(int)
 
     if suffix is True:
-        suffix = '_d'
+        suffix = "_d"
     add_suffix = isinstance(suffix, str) and len(suffix) > 0
     if add_suffix:
         columns = [tuple(str(c) + suffix for c in t) for t in v.columns]
@@ -465,11 +487,13 @@ def dummies(df,cols,suffix=False):
 
     return v
 
+
 import pandas as pd
 from pandas.errors import InvalidIndexError
 
-def use_indices(df,idxnames):
-    if len(set(idxnames).intersection(df.index.names))==0:
+
+def use_indices(df, idxnames):
+    if len(set(idxnames).intersection(df.index.names)) == 0:
         return pd.DataFrame(index=df.index)
 
     try:
@@ -480,7 +504,8 @@ def use_indices(df,idxnames):
     except InvalidIndexError:
         return df
 
-def drop_vestigial_levels(idx,axis=0,both=False,multiindex=False):
+
+def drop_vestigial_levels(idx, axis=0, both=False, multiindex=False):
     """
     Drop levels that don't vary across the index.
 
@@ -502,12 +527,12 @@ def drop_vestigial_levels(idx,axis=0,both=False,multiindex=False):
     FrozenList(['j'])
     """
     if both:
-        return drop_vestigial_levels(drop_vestigial_levels(idx,axis=1))
+        return drop_vestigial_levels(drop_vestigial_levels(idx, axis=1))
 
-    if axis==1:
+    if axis == 1:
         idx = idx.T
 
-    if isinstance(idx,(pd.DataFrame,pd.Series)):
+    if isinstance(idx, (pd.DataFrame, pd.Series)):
         df = idx
         idx = df.index
         HumptyDumpty = True
@@ -534,25 +559,28 @@ def drop_vestigial_levels(idx,axis=0,both=False,multiindex=False):
     if HumptyDumpty:
         df.index = idx
         idx = df
-        if axis==1:
+        if axis == 1:
             idx = idx.T
 
     return idx
 
+
 import numpy as np
 import pandas as pd
+
 
 def qr(X):
     """
     Pandas-friendly QR decomposition.
     """
-    assert X.shape[0]>=X.shape[1]
+    assert X.shape[0] >= X.shape[1]
 
-    Q,R = np.linalg.qr(X)
-    Q = pd.DataFrame(Q,index=X.index, columns=X.columns)
-    R = pd.DataFrame(R,index=X.columns, columns=X.columns)
+    Q, R = np.linalg.qr(X)
+    Q = pd.DataFrame(Q, index=X.index, columns=X.columns)
+    R = pd.DataFrame(R, index=X.columns, columns=X.columns)
 
-    return Q,R
+    return Q, R
+
 
 def hat_factory(X):
     """
@@ -566,31 +594,35 @@ def hat_factory(X):
     Q = qr(X)[0]
 
     def hat(y):
-        return Q@(Q.T@y)
+        return Q @ (Q.T @ y)
 
     return hat
 
+
 import pandas as pd
 
-def cov_nearest(V,threshold=1e-12):
+
+def cov_nearest(V, threshold=1e-12):
     """
     Return a positive definite matrix which is "nearest" to the symmetric matrix V,
     with the smallest eigenvalue not less than threshold.
     """
-    s,U = np.linalg.eigh((V+V.T)/2) # Eigenvalue decomposition of symmetric matrix
+    s, U = np.linalg.eigh((V + V.T) / 2)  # Eigenvalue decomposition of symmetric matrix
 
-    s = np.maximum(s,threshold)
+    s = np.maximum(s, threshold)
 
-    return V*0 + U@np.diag(s)@U.T  # Trick preserves attributes of dataframe V
+    return V * 0 + U @ np.diag(s) @ U.T  # Trick preserves attributes of dataframe V
+
 
 import pandas as pd
 import numpy as np
 
-def trim(df,alpha):
+
+def trim(df, alpha):
     """Trim values below alpha quantile and above (1-alpha) quantile.
 
     This maps individual extreme elements of df to NaN.
     """
     xmin = df.quantile(alpha)
-    xmax = df.quantile(1-alpha)
-    return df.where((df>=xmin)*(df<=xmax),np.nan)
+    xmax = df.quantile(1 - alpha)
+    return df.where((df >= xmin) * (df <= xmax), np.nan)

@@ -1,4 +1,6 @@
 POETRY = poetry
+BLACK ?= $(POETRY) run black
+export BLACK
 ORG_INPUTS = metrics_miscellany.org
 
 # Files under metrics_miscellany/ that are NOT tangled from $(ORG_INPUTS).

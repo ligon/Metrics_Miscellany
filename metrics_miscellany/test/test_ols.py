@@ -2,19 +2,21 @@ import pandas as pd
 from metrics_miscellany.estimators import ols
 import numpy as np
 
-def test_ols(N=500000,tol=1e-2):
 
-    x = pd.DataFrame({'x':np.random.standard_normal((N,))})
-    x['Constant'] = 1
+def test_ols(N=500000, tol=1e-2):
 
-    beta = pd.DataFrame({'Coefficients':[1,0]},index=['x','Constant'])
+    x = pd.DataFrame({"x": np.random.standard_normal((N,))})
+    x["Constant"] = 1
 
-    u = pd.DataFrame(np.random.standard_normal((N,))/10)
+    beta = pd.DataFrame({"Coefficients": [1, 0]}, index=["x", "Constant"])
 
-    y = (x@beta).values + u.values
-    b,V = ols(x,y)
+    u = pd.DataFrame(np.random.standard_normal((N,)) / 10)
 
-    assert np.allclose(b,beta,atol=tol)
+    y = (x @ beta).values + u.values
+    b, V = ols(x, y)
 
-if __name__=='__main__':
+    assert np.allclose(b, beta, atol=tol)
+
+
+if __name__ == "__main__":
     test_ols()

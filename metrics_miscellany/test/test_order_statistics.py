@@ -8,8 +8,7 @@ def test_qci_returns_interval_and_coverage():
     achieved coverage at least the requested minimum."""
     rng = np.random.default_rng(0)
     x = pd.Series(rng.standard_normal(101))  # odd n -> median sits on a point
-    (lo, hi), coverage = quantile_confidence_intervals(
-        x, q=0.5, minimum_coverage=0.95)
+    (lo, hi), coverage = quantile_confidence_intervals(x, q=0.5, minimum_coverage=0.95)
     assert lo <= hi
     assert coverage >= 0.95
 
@@ -32,8 +31,7 @@ def test_qci_brackets_population_median():
     signal a real bug, not Monte Carlo noise."""
     rng = np.random.default_rng(2)
     x = pd.Series(rng.standard_normal(500))
-    (lo, hi), _ = quantile_confidence_intervals(
-        x, q=0.5, minimum_coverage=0.99)
+    (lo, hi), _ = quantile_confidence_intervals(x, q=0.5, minimum_coverage=0.99)
     assert lo <= 0.0 <= hi
 
 
@@ -47,7 +45,7 @@ def test_qci_quartile_call_still_works():
     assert coverage >= 0.95
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     test_qci_returns_interval_and_coverage()
     test_qci_endpoints_are_order_statistics()
     test_qci_brackets_population_median()
