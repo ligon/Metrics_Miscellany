@@ -9,9 +9,9 @@ from metrics_miscellany import kernel_methods as km
 def smooth_data():
     rng = np.random.default_rng(0)
     n = 200
-    x = pd.Series(np.linspace(-3, 3, n), name='x')
+    x = pd.Series(np.linspace(-3, 3, n), name="x")
     sigma = 0.1
-    y = pd.Series(np.sin(x) + sigma * rng.standard_normal(n), name='y')
+    y = pd.Series(np.sin(x) + sigma * rng.standard_normal(n), name="y")
     return x, y, sigma
 
 
@@ -37,16 +37,16 @@ def test_kernel_regression_variance_recovers_homoskedastic_noise(smooth_data):
         est = float(sigmahat(x0))
         # Match sigma^2 to within a factor of ~3 -- generous to allow
         # for bias from kernel smoothing.
-        assert sigma ** 2 / 3 < est < 3 * sigma ** 2, (
-            f"sigmahat({x0}) = {est:.4f}, expected ~{sigma**2:.4f}")
+        assert (
+            sigma**2 / 3 < est < 3 * sigma**2
+        ), f"sigmahat({x0}) = {est:.4f}, expected ~{sigma**2:.4f}"
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     rng = np.random.default_rng(0)
     n = 200
-    x = pd.Series(np.linspace(-3, 3, n), name='x')
+    x = pd.Series(np.linspace(-3, 3, n), name="x")
     sigma = 0.1
-    y = pd.Series(np.sin(x) + sigma * rng.standard_normal(n), name='y')
+    y = pd.Series(np.sin(x) + sigma * rng.standard_normal(n), name="y")
     test_kernel_regression_recovers_smooth_target((x, y, sigma))
-    test_kernel_regression_variance_recovers_homoskedastic_noise(
-        (x, y, sigma))
+    test_kernel_regression_variance_recovers_homoskedastic_noise((x, y, sigma))

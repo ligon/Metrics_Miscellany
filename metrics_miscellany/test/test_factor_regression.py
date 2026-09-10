@@ -4,65 +4,73 @@ from metrics_miscellany.estimators import factor_regression
 from metrics_miscellany import utils
 import numpy as np
 
-def generate_multivariate_normal(N,k,V=None,colidx='a'):
+
+def generate_multivariate_normal(N, k, V=None, colidx="a"):
 
     try:
         a = ord(colidx)
-        labels = list(map(chr, range(a, a+k)))
+        labels = list(map(chr, range(a, a + k)))
     except TypeError:
-        labels = range(colidx,colidx+k)
+        labels = range(colidx, colidx + k)
 
     if V is None:
-        D = pd.DataFrame(np.random.randn(k,k),index=labels,columns=labels)
-        V = D.T@D
+        D = pd.DataFrame(np.random.randn(k, k), index=labels, columns=labels)
+        V = D.T @ D
     else:
-        V = pd.DataFrame(V,index=labels,columns=labels)
+        V = pd.DataFrame(V, index=labels, columns=labels)
 
-    X = pd.DataFrame(stats.multivariate_normal(cov=V).rvs(N),columns=labels)
+    X = pd.DataFrame(stats.multivariate_normal(cov=V).rvs(N), columns=labels)
 
     return X
 
-def main(N,k,l,r):
 
-    U = generate_multivariate_normal(N,k,V=np.eye(k),colidx='A')/100
+def main(N, k, l, r):
 
-    X = generate_multivariate_normal(N,l)
+    U = generate_multivariate_normal(N, k, V=np.eye(k), colidx="A") / 100
 
-    a = ord('a')
-    A = ord('A')
-    rlabels = list(map(chr, range(a, a+l)))
-    clabels = list(map(chr, range(A, A+k)))
-    B = pd.DataFrame(np.arange(1,l*k+1).reshape(l,k),index=rlabels,columns=clabels)
+    X = generate_multivariate_normal(N, l)
 
-    F = generate_multivariate_normal(N,r,colidx=0)
+    a = ord("a")
+    A = ord("A")
+    rlabels = list(map(chr, range(a, a + l)))
+    clabels = list(map(chr, range(A, A + k)))
+    B = pd.DataFrame(
+        np.arange(1, l * k + 1).reshape(l, k), index=rlabels, columns=clabels
+    )
+
+    F = generate_multivariate_normal(N, r, colidx=0)
     F = F - F.mean()
     scale = F.std()
-    F = F.multiply(1/scale)
+    F = F.multiply(1 / scale)
 
-    L = pd.DataFrame(np.arange(1,k*r+1).reshape(r,k)/10,index=F.columns,columns=U.columns)
-    L = L.multiply(scale,axis=0)
+    L = pd.DataFrame(
+        np.arange(1, k * r + 1).reshape(r, k) / 10, index=F.columns, columns=U.columns
+    )
+    L = L.multiply(scale, axis=0)
 
-    Y = utils.matrix_product(X,B) + utils.matrix_product(F,L) + U
+    Y = utils.matrix_product(X, B) + utils.matrix_product(F, L) + U
 
-    return Y,X,F,B,L,U
+    return Y, X, F, B, L, U
 
-def test_factor_regression(N=1000,k=10,l=2,r=1):
+
+def test_factor_regression(N=1000, k=10, l=2, r=1):
     # Seed the global RNG so this test is independent of upstream test
     # ordering: =main()= and =generate_multivariate_normal()= use
     # np.random.* and scipy.stats.rvs() without an explicit seed.
     np.random.seed(20240101)
-    Y,X,F0,B0,L0,U0 = main(N,k,l,r)
-    X['Constant'] = 1
+    Y, X, F0, B0, L0, U0 = main(N, k, l, r)
+    X["Constant"] = 1
 
-    B,L,F = factor_regression(Y,X,rank=r)
+    B, L, F = factor_regression(Y, X, rank=r)
 
-    assert np.linalg.norm(F0-F) < np.linalg.norm(F0)
+    assert np.linalg.norm(F0 - F) < np.linalg.norm(F0)
 
-    assert np.all(Y.var()>(Y-X@B).var())
+    assert np.all(Y.var() > (Y - X @ B).var())
 
-    assert np.all((Y-X@B).var()>(Y-X@B-F@L).var())
+    assert np.all((Y - X @ B).var() > (Y - X @ B - F @ L).var())
 
-    assert np.linalg.norm((B0-B).dropna())/np.linalg.norm(B0) < 0.01
+    assert np.linalg.norm((B0 - B).dropna()) / np.linalg.norm(B0) < 0.01
 
-if __name__ == '__main__':
-    test_factor_regression(N=10000,r=1)
+
+if __name__ == "__main__":
+    test_factor_regression(N=10000, r=1)
