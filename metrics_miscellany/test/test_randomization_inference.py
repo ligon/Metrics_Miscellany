@@ -9,7 +9,6 @@ a numeric assertion about the returned p-value.
 import numpy as np
 import pandas as pd
 import pytest
-import scipy.stats.distributions as dists
 from metrics_miscellany import tests as mm_tests
 
 

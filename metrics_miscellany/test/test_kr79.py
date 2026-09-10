@@ -9,8 +9,6 @@ marked accordingly.
 """
 
 import numpy as np
-import pytest
-import scipy.stats.distributions as iid
 from scipy import stats
 from metrics_miscellany import tests as mm_tests
 

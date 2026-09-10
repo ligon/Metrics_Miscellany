@@ -23,7 +23,7 @@ def chi2_test(b, V, var_selection=None, R=None, TEST=False):
     if var_selection is not None:
         if isinstance(var_selection, str):
             myb = b.query(var_selection)
-        elif isinstance(var_selection, (list, tuple)):
+        elif isinstance(var_selection, list | tuple):
             myb = b.loc[list(var_selection)]
         else:
             raise ValueError(
@@ -111,9 +111,6 @@ def skillings_mack(df, bootstrap=False):
     # Counts of obs per row ("treatments")
     kay = X.count(axis=0)
 
-    # Counts of obs per column ("blocks")
-    en = X.count(axis=1)
-
     R = X.rank(axis=0)
 
     SM = construct_statistic(R, kay, X)
@@ -121,7 +118,11 @@ def skillings_mack(df, bootstrap=False):
     if not bootstrap:
         p = 1 - stats.distributions.chi2.cdf(SM, df=n - 1)
     else:
-        if bootstrap == True:
+        # `bootstrap` is False, True, or a tolerance.  Compared with == and
+        # not `is` so that a caller passing 1 or 1.0 still gets the default
+        # tolerance.  Ruff's E712 suggestion (`if bootstrap:`) would take
+        # this branch for *any* tolerance, and `is True` would skip it for 1.
+        if bootstrap == True:  # noqa: E712
             tol = 1e-03
         else:
             tol = bootstrap
@@ -194,8 +195,8 @@ def randomization_inference(
         i += 1
         if VERBOSE:
             print(
-                "Latest chi2 (randomized,actual,p): (%6.2f,%6.2f,%6.4f)"
-                % (Chi2[-1], chi2, p)
+                f"Latest chi2 (randomized,actual,p): "
+                f"({Chi2[-1]:6.2f},{chi2:6.2f},{p:6.4f})"
             )
 
     if return_draws:
@@ -230,7 +231,8 @@ def maunchy(C, N):
         / (288 * (m**2) * ((N - 1) ** 2) * rho**2)
     )
 
-    gamma = (((N - 1) * rho) ** 2) * w2
+    # gamma feeds the higher-order correction commented out below.
+    gamma = (((N - 1) * rho) ** 2) * w2  # noqa: F841
 
     x2 = -2 * (N - 1) * rho * np.log(V)  # Chi-squared statistic
 
@@ -238,7 +240,10 @@ def maunchy(C, N):
 
     px2 = chi2.cdf(x2, df)
 
-    p = px2 + gamma / (((N - 1) * rho) ** 2) * (chi2.cdf(x2, df + 4) - px2)
+    # Higher-order correction, kept for whoever implements this (cf. kr79,
+    # which carries the same line commented out).  Note the return below is
+    # the *uncorrected* p-value, so wiring this in is part of the job.
+    # p = px2 + gamma/(((N-1)*rho)**2) * (chi2.cdf(x2,df+4) - px2)
 
     return x2, 1 - px2
 
@@ -252,8 +257,6 @@ def kr79(C, q, N):
     return p-value associated with test of whether the population
     covariance matrix has last q eigenvalues equal or not, where q+k=m.
     """
-
-    m = C.shape[0]
 
     l = np.linalg.eigvalsh(C)  # eigenvalues in *ascending* order
 

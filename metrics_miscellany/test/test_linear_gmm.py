@@ -1,4 +1,3 @@
-import pandas as pd
 from metrics_miscellany.estimators import linear_gmm
 from datamat import DataMat, DataVec
 import numpy as np

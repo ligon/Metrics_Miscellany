@@ -2,11 +2,12 @@ import numpy as np
 from numpy.linalg import lstsq
 import warnings
 import pandas as pd
-from . import gmm
-from .GMM_class import GMM
 from . import utils
-from datamat import DataMat, DataVec
 import datamat as dm
+
+# Re-exported: metrics_miscellany.test.test_gmm imports `gmm` from here.
+# The redundant alias marks that as deliberate rather than an unused import.
+from . import gmm as gmm
 
 
 def ols(X, y, cov_type="HC3", PSD_COV=False):
@@ -40,7 +41,9 @@ def ols(X, y, cov_type="HC3", PSD_COV=False):
             XX = U_xx @ np.diag(np.maximum(s_xx, 1e-12)) @ U_xx.T
             XXinv = np.linalg.inv(XX)
             warnings.warn(
-                "X'X not positive (semi-) definite.  Correcting!  Estimated variances should not be affected."
+                "X'X not positive (semi-) definite.  Correcting!  "
+                "Estimated variances should not be affected.",
+                stacklevel=2,
             )
         V = np.var(e, ddof=0) * XXinv
     elif cov_type in ("HC0", "HC1", "HC2", "HC3"):
@@ -65,8 +68,9 @@ def ols(X, y, cov_type="HC3", PSD_COV=False):
             oldV = V
             V = U @ np.diag(np.maximum(s, PSD_COV)) @ U.T
             warnings.warn(
-                "Estimated covariance matrix not positive (semi-) definite.\nCorrecting! Norm of difference is %g."
-                % np.linalg.norm(oldV - V)
+                "Estimated covariance matrix not positive (semi-) definite.\n"
+                f"Correcting! Norm of difference is {np.linalg.norm(oldV - V):g}.",
+                stacklevel=2,
             )
 
     V = pd.DataFrame(V, index=X.columns, columns=X.columns)
@@ -240,7 +244,6 @@ def factor_analysis(
     X = X - xbar
 
     # some constant terms
-    nsqrt = np.sqrt(n_samples)
     llconst = n_features * np.log(2.0 * np.pi) + n_components
     var = X.var()
 
@@ -322,12 +325,10 @@ def factor_analysis(
                 vt = vt[:n_components, :]
                 s = s[:n_components]
 
-            r = len(s)
-
             return s, vt, squared_norm(P) - squared_norm(s)
 
     P = self_inner(X)
-    for i in range(max_its):
+    for _ in range(max_its):
         # SMALL helps numerics
         sqrt_psi = np.sqrt(psi) + SMALL
         s, Vt, unexp_var = my_svd(P @ np.diag(1 / (psi * n_samples)))
@@ -353,9 +354,10 @@ def factor_analysis(
         # previous code referenced an unimported ConvergenceWarning and a
         # second never-called local =ll= function -- both removed.
         warnings.warn(
-            "factor_analysis did not converge in %d iterations; "
-            "increasing max_its may help." % max_its,
+            f"factor_analysis did not converge in {max_its} iterations; "
+            "increasing max_its may help.",
             RuntimeWarning,
+            stacklevel=2,
         )
 
     return W, psi

@@ -2,7 +2,7 @@ from . import gmm
 import numpy as np
 
 
-class GMM(object):
+class GMM:
 
     def __init__(self, gj, data, B, W=None):
         """GMM problem for restrictions E(gj(b0))=0, estimated using data with b0 in R^k.

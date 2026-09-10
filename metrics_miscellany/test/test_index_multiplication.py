@@ -3,7 +3,6 @@ import inspect
 import pytest
 import datamat as dm
 import pandas as pd
-import numpy as np
 
 
 @pytest.fixture

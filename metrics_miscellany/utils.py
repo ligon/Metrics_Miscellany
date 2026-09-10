@@ -262,7 +262,7 @@ def heteropca(C, r=1, max_its=50, tol=1e-3, verbose=False):
         t += 1
 
         if t == max_its:
-            warnings.warn("Exceeded maximum iterations (%d)" % max_its)
+            warnings.warn(f"Exceeded maximum iterations ({max_its})", stacklevel=2)
         if verbose:
             print(f"Iteration {t}, u[0,:r]={u[0,:r]}.")
 
@@ -415,10 +415,14 @@ def drop_missing(X, infinities=False):
     """
 
     if isinstance(X, dict):
-        return dict(zip(X.keys(), drop_missing(list(X.values()), infinities=False)))
+        return dict(
+            zip(
+                X.keys(), drop_missing(list(X.values()), infinities=False), strict=False
+            )
+        )
 
     for i, x in enumerate(X):
-        if type(x) == pd.Series and x.name is None:
+        if type(x) is pd.Series and x.name is None:
             x.name = i
 
     foo = pd.concat(X, axis=1)
@@ -471,7 +475,7 @@ def dummies(df, cols, suffix=False):
 
     usecols = [v[c].squeeze() for c in cols]
 
-    tuples = pd.Series(list(zip(*usecols)), index=v.index)
+    tuples = pd.Series(list(zip(*usecols, strict=False)), index=v.index)
 
     v = get_dummies(tuples).astype(int)
 
@@ -532,7 +536,7 @@ def drop_vestigial_levels(idx, axis=0, both=False, multiindex=False):
     if axis == 1:
         idx = idx.T
 
-    if isinstance(idx, (pd.DataFrame, pd.Series)):
+    if isinstance(idx, pd.DataFrame | pd.Series):
         df = idx
         idx = df.index
         HumptyDumpty = True

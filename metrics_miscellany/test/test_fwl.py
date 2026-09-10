@@ -1,6 +1,5 @@
 import unittest
 import numpy as np
-import pandas as pd
 from metrics_miscellany.estimators import (
     fwl_regression,
     reconstruct_coefficients_from_fwl,

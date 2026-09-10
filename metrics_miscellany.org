@@ -245,7 +245,6 @@ import inspect
 import pytest
 import datamat as dm
 import pandas as pd
-import numpy as np
 
 
 @pytest.fixture
@@ -442,7 +441,9 @@ def heteropca(C, r=1, max_its=50, tol=1e-3, verbose=False):
         t += 1
 
         if t == max_its:
-            warnings.warn("Exceeded maximum iterations (%d)" % max_its)
+            warnings.warn(
+                f"Exceeded maximum iterations ({max_its})", stacklevel=2
+            )
         if verbose:
             print(f"Iteration {t}, u[0,:r]={u[0,:r]}.")
 
@@ -596,10 +597,10 @@ def drop_missing(X, infinities=False):
     """
 
     if isinstance(X, dict):
-        return dict(zip(X.keys(), drop_missing(list(X.values()), infinities=False)))
+        return dict(zip(X.keys(), drop_missing(list(X.values()), infinities=False), strict=False))
 
     for i, x in enumerate(X):
-        if type(x) == pd.Series and x.name is None:
+        if type(x) is pd.Series and x.name is None:
             x.name = i
 
     foo = pd.concat(X, axis=1)
@@ -652,7 +653,7 @@ def dummies(df, cols, suffix=False):
 
     usecols = [v[c].squeeze() for c in cols]
 
-    tuples = pd.Series(list(zip(*usecols)), index=v.index)
+    tuples = pd.Series(list(zip(*usecols, strict=False)), index=v.index)
 
     v = get_dummies(tuples).astype(int)
 
@@ -671,7 +672,7 @@ def dummies(df, cols, suffix=False):
 
 *** Test of =dummies=
 #+begin_src python :tangle metrics_miscellany/test/test_dummies.py
-from metrics_miscellany.utils import dummies, use_indices
+from metrics_miscellany.utils import dummies
 import pandas as pd
 
 
@@ -771,7 +772,7 @@ def drop_vestigial_levels(idx, axis=0, both=False, multiindex=False):
     if axis == 1:
         idx = idx.T
 
-    if isinstance(idx, (pd.DataFrame, pd.Series)):
+    if isinstance(idx, pd.DataFrame | pd.Series):
         df = idx
         idx = df.index
         HumptyDumpty = True
@@ -1214,11 +1215,12 @@ import numpy as np
 from numpy.linalg import lstsq
 import warnings
 import pandas as pd
-from . import gmm
-from .GMM_class import GMM
 from . import utils
-from datamat import DataMat, DataVec
 import datamat as dm
+
+# Re-exported: metrics_miscellany.test.test_gmm imports `gmm` from here.
+# The redundant alias marks that as deliberate rather than an unused import.
+from . import gmm as gmm
 #+end_src
 ** OLS
 #+begin_src python :tangle metrics_miscellany/estimators.py
@@ -1253,7 +1255,9 @@ def ols(X, y, cov_type="HC3", PSD_COV=False):
             XX = U_xx @ np.diag(np.maximum(s_xx, 1e-12)) @ U_xx.T
             XXinv = np.linalg.inv(XX)
             warnings.warn(
-                "X'X not positive (semi-) definite.  Correcting!  Estimated variances should not be affected."
+                "X'X not positive (semi-) definite.  Correcting!  "
+                "Estimated variances should not be affected.",
+                stacklevel=2,
             )
         V = np.var(e, ddof=0) * XXinv
     elif cov_type in ("HC0", "HC1", "HC2", "HC3"):
@@ -1278,8 +1282,9 @@ def ols(X, y, cov_type="HC3", PSD_COV=False):
             oldV = V
             V = U @ np.diag(np.maximum(s, PSD_COV)) @ U.T
             warnings.warn(
-                "Estimated covariance matrix not positive (semi-) definite.\nCorrecting! Norm of difference is %g."
-                % np.linalg.norm(oldV - V)
+                "Estimated covariance matrix not positive (semi-) definite.\n"
+                f"Correcting! Norm of difference is {np.linalg.norm(oldV - V):g}.",
+                stacklevel=2,
             )
 
     V = pd.DataFrame(V, index=X.columns, columns=X.columns)
@@ -1454,8 +1459,7 @@ def tsls(X, y, Z, return_Omega=False, **kwargs):
 #+end_src
 *** TSLS Tests
 #+begin_src python :tangle metrics_miscellany/test/test_tsls.py
-import pandas as pd
-from metrics_miscellany.estimators import tsls, ols, restricted_tsls
+from metrics_miscellany.estimators import tsls, restricted_tsls
 from datamat import DataMat, DataVec
 import numpy as np
 
@@ -1673,7 +1677,6 @@ def factor_analysis(
     X = X - xbar
 
     # some constant terms
-    nsqrt = np.sqrt(n_samples)
     llconst = n_features * np.log(2.0 * np.pi) + n_components
     var = X.var()
 
@@ -1755,12 +1758,10 @@ def factor_analysis(
                 vt = vt[:n_components, :]
                 s = s[:n_components]
 
-            r = len(s)
-
             return s, vt, squared_norm(P) - squared_norm(s)
 
     P = self_inner(X)
-    for i in range(max_its):
+    for _ in range(max_its):
         # SMALL helps numerics
         sqrt_psi = np.sqrt(psi) + SMALL
         s, Vt, unexp_var = my_svd(P @ np.diag(1 / (psi * n_samples)))
@@ -1786,9 +1787,10 @@ def factor_analysis(
         # previous code referenced an unimported ConvergenceWarning and a
         # second never-called local =ll= function -- both removed.
         warnings.warn(
-            "factor_analysis did not converge in %d iterations; "
-            "increasing max_its may help." % max_its,
+            f"factor_analysis did not converge in {max_its} iterations; "
+            "increasing max_its may help.",
             RuntimeWarning,
+            stacklevel=2,
         )
 
     return W, psi
@@ -1949,7 +1951,6 @@ Here are unit tests for both functions:
 #+begin_src python :tangle metrics_miscellany/test/test_fwl.py
 import unittest
 import numpy as np
-import pandas as pd
 from metrics_miscellany.estimators import (
     fwl_regression,
     reconstruct_coefficients_from_fwl,
@@ -2087,7 +2088,6 @@ def linear_gmm(X, y, Z, W=None, return_Omega=False):
 #+end_src
 *** Linear GMM Tests
 #+begin_src python :tangle metrics_miscellany/test/test_linear_gmm.py
-import pandas as pd
 from metrics_miscellany.estimators import linear_gmm
 from datamat import DataMat, DataVec
 import numpy as np
@@ -2353,7 +2353,6 @@ def gram(X, kernel=gaussian, bw=1):
     Construct Gram matrix from vector of data X.
     """
     try:
-        idx = X.index
         df = True
         x = X.values
     except AttributeError:
@@ -2364,9 +2363,9 @@ def gram(X, kernel=gaussian, bw=1):
     K = kernel((x.reshape((-1, 1)) - x.reshape((1, -1))) / bw)
 
     if df:
-        if isinstance(X, (dm.DataVec, dm.DataMat)):
+        if isinstance(X, dm.DataVec | dm.DataMat):
             K = dm.DataMat(K, index=X.index, columns=X.index)
-        elif isinstance(X, (pd.Series, pd.DataFrame)):
+        elif isinstance(X, pd.Series | pd.DataFrame):
             K = pd.DataFrame(K, index=X.index, columns=X.index)
 
     return K
@@ -2501,6 +2500,13 @@ inv = utils.inv
 
 ######################################################
 # Beginning of procedural version of gmm routines
+#
+# These routines deliberately reference a module-level `gj(b)` that is not
+# defined here: the caller supplies the moment conditions for their own data
+# by binding `gmm.gj`, which is what makes the procedural interface generic.
+# Ruff cannot see that, so each use carries `# noqa: F821`.  The name is left
+# genuinely undefined rather than stubbed to None so that forgetting to bind
+# it raises NameError naming `gj`, instead of a TypeError about NoneType.
 
 
 def gN(b):
@@ -2508,7 +2514,7 @@ def gN(b):
 
     This is generic for data, to be passed to gj.
     """
-    e = gj(b)
+    e = gj(b)  # noqa: F821
 
     gN.N, gN.k = e.shape
     gN.N = e.count()  # Allows for possibility of missing data
@@ -2522,7 +2528,7 @@ def gN(b):
 
 
 def Omegahat(b):
-    e = gj(b)
+    e = gj(b)  # noqa: F821
 
     # Recenter! We have Eu=0 under null.
     # Important to use this information.
@@ -2567,7 +2573,7 @@ def one_step_gmm(W=None, b_init=None):
         b_init = 0
 
     if W is None:
-        e = gj(b_init)
+        e = gj(b_init)  # noqa: F821
         W = pd.DataFrame(np.eye(e.shape[1]), index=e.columns, columns=e.columns)
 
     assert np.linalg.matrix_rank(W) == W.shape[0]
@@ -2592,7 +2598,8 @@ def two_step_gmm(b_init=None):
 def continuously_updated_gmm(b_init=None):
 
     # First step uses identity weighting matrix
-    W = lambda b: utils.inv(Omegahat(b))
+    def W(b):
+        return utils.inv(Omegahat(b))
 
     bhat = minimize(lambda b: JN(b, utils.inv(Omegahat(b))), b_init=b_init)
 
@@ -2715,8 +2722,10 @@ def test_gmm(N=10000):
     ## But play with Omega if you want to introduce heteroskedascity
     Omega = (sigma_u**2) * VXZ[1:, 1:]  # E(Zu)(u'Z')
 
-    # Asymptotic variance of optimally weighted GMM estimator:
-    AVar_b = inv(Q.T @ inv(Omega) @ Q)
+    # Asymptotic variance of optimally weighted GMM estimator.  Computed but
+    # not yet asserted against: the test only checks the point estimate below.
+    # Kept because it documents what the DGP was constructed to make tractable.
+    AVar_b = inv(Q.T @ inv(Omega) @ Q)  # noqa: F841
 
     data = dgp(N, *truth)
 
@@ -2749,7 +2758,7 @@ from . import gmm
 import numpy as np
 
 
-class GMM(object):
+class GMM:
 
     def __init__(self, gj, data, B, W=None):
         """GMM problem for restrictions E(gj(b0))=0, estimated using data with b0 in R^k.
@@ -2854,7 +2863,7 @@ def chi2_test(b, V, var_selection=None, R=None, TEST=False):
     if var_selection is not None:
         if isinstance(var_selection, str):
             myb = b.query(var_selection)
-        elif isinstance(var_selection, (list, tuple)):
+        elif isinstance(var_selection, list | tuple):
             myb = b.loc[list(var_selection)]
         else:
             raise ValueError(
@@ -2921,7 +2930,7 @@ def main():
 def test_chi2():
     p = []
     m = 1000
-    for i in range(m):
+    for _ in range(m):
         p.append(main()[1])
 
     p = pd.Series([x[0][0] for x in p]).squeeze()
@@ -3030,9 +3039,6 @@ def skillings_mack(df, bootstrap=False):
     # Counts of obs per row ("treatments")
     kay = X.count(axis=0)
 
-    # Counts of obs per column ("blocks")
-    en = X.count(axis=1)
-
     R = X.rank(axis=0)
 
     SM = construct_statistic(R, kay, X)
@@ -3040,7 +3046,11 @@ def skillings_mack(df, bootstrap=False):
     if not bootstrap:
         p = 1 - stats.distributions.chi2.cdf(SM, df=n - 1)
     else:
-        if bootstrap == True:
+        # `bootstrap` is False, True, or a tolerance.  Compared with == and
+        # not `is` so that a caller passing 1 or 1.0 still gets the default
+        # tolerance.  Ruff's E712 suggestion (`if bootstrap:`) would take
+        # this branch for *any* tolerance, and `is True` would skip it for 1.
+        if bootstrap == True:  # noqa: E712
             tol = 1e-03
         else:
             tol = bootstrap
@@ -3201,8 +3211,8 @@ def randomization_inference(
         i += 1
         if VERBOSE:
             print(
-                "Latest chi2 (randomized,actual,p): (%6.2f,%6.2f,%6.4f)"
-                % (Chi2[-1], chi2, p)
+                f"Latest chi2 (randomized,actual,p): "
+                f"({Chi2[-1]:6.2f},{chi2:6.2f},{p:6.4f})"
             )
 
     if return_draws:
@@ -3224,7 +3234,6 @@ a numeric assertion about the returned p-value.
 import numpy as np
 import pandas as pd
 import pytest
-import scipy.stats.distributions as dists
 from metrics_miscellany import tests as mm_tests
 
 
@@ -3329,7 +3338,8 @@ def maunchy(C, N):
         / (288 * (m**2) * ((N - 1) ** 2) * rho**2)
     )
 
-    gamma = (((N - 1) * rho) ** 2) * w2
+    # gamma feeds the higher-order correction commented out below.
+    gamma = (((N - 1) * rho) ** 2) * w2  # noqa: F841
 
     x2 = -2 * (N - 1) * rho * np.log(V)  # Chi-squared statistic
 
@@ -3337,7 +3347,10 @@ def maunchy(C, N):
 
     px2 = chi2.cdf(x2, df)
 
-    p = px2 + gamma / (((N - 1) * rho) ** 2) * (chi2.cdf(x2, df + 4) - px2)
+    # Higher-order correction, kept for whoever implements this (cf. kr79,
+    # which carries the same line commented out).  Note the return below is
+    # the *uncorrected* p-value, so wiring this in is part of the job.
+    # p = px2 + gamma/(((N-1)*rho)**2) * (chi2.cdf(x2,df+4) - px2)
 
     return x2, 1 - px2
 #+end_src
@@ -3388,8 +3401,6 @@ def kr79(C, q, N):
     covariance matrix has last q eigenvalues equal or not, where q+k=m.
     """
 
-    m = C.shape[0]
-
     l = np.linalg.eigvalsh(C)  # eigenvalues in *ascending* order
 
     Q = (np.prod(l[:q]) / (np.mean(l[:q]) ** q)) ** (N / 2)  # LR test statistic
@@ -3417,8 +3428,6 @@ marked accordingly.
 """
 
 import numpy as np
-import pytest
-import scipy.stats.distributions as iid
 from scipy import stats
 from metrics_miscellany import tests as mm_tests
 
@@ -3517,7 +3526,6 @@ def cragg_donald(X, Q):
 
 import datamat as dm
 from metrics_miscellany.tests import cragg_donald
-from scipy.stats.distributions import norm
 import numpy as np
 import pytest
 
@@ -3922,7 +3930,7 @@ def _top_level_definitions(path):
     return [
         node.name
         for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
     ]
 
 

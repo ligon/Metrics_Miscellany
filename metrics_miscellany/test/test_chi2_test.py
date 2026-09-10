@@ -22,7 +22,7 @@ def main():
 def test_chi2():
     p = []
     m = 1000
-    for i in range(m):
+    for _ in range(m):
         p.append(main()[1])
 
     p = pd.Series([x[0][0] for x in p]).squeeze()

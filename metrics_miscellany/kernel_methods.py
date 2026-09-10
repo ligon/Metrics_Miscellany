@@ -19,7 +19,6 @@ def gram(X, kernel=gaussian, bw=1):
     Construct Gram matrix from vector of data X.
     """
     try:
-        idx = X.index
         df = True
         x = X.values
     except AttributeError:
@@ -30,9 +29,9 @@ def gram(X, kernel=gaussian, bw=1):
     K = kernel((x.reshape((-1, 1)) - x.reshape((1, -1))) / bw)
 
     if df:
-        if isinstance(X, (dm.DataVec, dm.DataMat)):
+        if isinstance(X, dm.DataVec | dm.DataMat):
             K = dm.DataMat(K, index=X.index, columns=X.index)
-        elif isinstance(X, (pd.Series, pd.DataFrame)):
+        elif isinstance(X, pd.Series | pd.DataFrame):
             K = pd.DataFrame(K, index=X.index, columns=X.index)
 
     return K

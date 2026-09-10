@@ -3,7 +3,6 @@
 
 import datamat as dm
 from metrics_miscellany.tests import cragg_donald
-from scipy.stats.distributions import norm
 import numpy as np
 import pytest
 

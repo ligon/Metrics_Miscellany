@@ -1,4 +1,4 @@
-from metrics_miscellany.utils import dummies, use_indices
+from metrics_miscellany.utils import dummies
 import pandas as pd
 
 

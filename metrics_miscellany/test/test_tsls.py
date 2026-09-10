@@ -1,5 +1,4 @@
-import pandas as pd
-from metrics_miscellany.estimators import tsls, ols, restricted_tsls
+from metrics_miscellany.estimators import tsls, restricted_tsls
 from datamat import DataMat, DataVec
 import numpy as np
 

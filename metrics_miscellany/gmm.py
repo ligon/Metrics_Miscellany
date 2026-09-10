@@ -15,6 +15,13 @@ inv = utils.inv
 
 ######################################################
 # Beginning of procedural version of gmm routines
+#
+# These routines deliberately reference a module-level `gj(b)` that is not
+# defined here: the caller supplies the moment conditions for their own data
+# by binding `gmm.gj`, which is what makes the procedural interface generic.
+# Ruff cannot see that, so each use carries `# noqa: F821`.  The name is left
+# genuinely undefined rather than stubbed to None so that forgetting to bind
+# it raises NameError naming `gj`, instead of a TypeError about NoneType.
 
 
 def gN(b):
@@ -22,7 +29,7 @@ def gN(b):
 
     This is generic for data, to be passed to gj.
     """
-    e = gj(b)
+    e = gj(b)  # noqa: F821
 
     gN.N, gN.k = e.shape
     gN.N = e.count()  # Allows for possibility of missing data
@@ -36,7 +43,7 @@ def gN(b):
 
 
 def Omegahat(b):
-    e = gj(b)
+    e = gj(b)  # noqa: F821
 
     # Recenter! We have Eu=0 under null.
     # Important to use this information.
@@ -81,7 +88,7 @@ def one_step_gmm(W=None, b_init=None):
         b_init = 0
 
     if W is None:
-        e = gj(b_init)
+        e = gj(b_init)  # noqa: F821
         W = pd.DataFrame(np.eye(e.shape[1]), index=e.columns, columns=e.columns)
 
     assert np.linalg.matrix_rank(W) == W.shape[0]
@@ -106,7 +113,8 @@ def two_step_gmm(b_init=None):
 def continuously_updated_gmm(b_init=None):
 
     # First step uses identity weighting matrix
-    W = lambda b: utils.inv(Omegahat(b))
+    def W(b):
+        return utils.inv(Omegahat(b))
 
     bhat = minimize(lambda b: JN(b, utils.inv(Omegahat(b))), b_init=b_init)
 

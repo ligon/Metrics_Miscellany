@@ -74,8 +74,10 @@ def test_gmm(N=10000):
     ## But play with Omega if you want to introduce heteroskedascity
     Omega = (sigma_u**2) * VXZ[1:, 1:]  # E(Zu)(u'Z')
 
-    # Asymptotic variance of optimally weighted GMM estimator:
-    AVar_b = inv(Q.T @ inv(Omega) @ Q)
+    # Asymptotic variance of optimally weighted GMM estimator.  Computed but
+    # not yet asserted against: the test only checks the point estimate below.
+    # Kept because it documents what the DGP was constructed to make tractable.
+    AVar_b = inv(Q.T @ inv(Omega) @ Q)  # noqa: F841
 
     data = dgp(N, *truth)
 
