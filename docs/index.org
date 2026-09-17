@@ -5,9 +5,9 @@
 * Overview
 This directory collects contributor-facing material for the *Metrics_Miscellany* project —
 a library of econometric estimators, hypothesis tests, and utility routines backed by
-=DataMat=/=DataVec= structures.  The documents are written in **Emacs Org-mode** to stay
-in sync with the rest of the project (notably =metrics_miscellany.org=, which tangles to
-Python modules).
+=DataMat=/=DataVec= structures.  The documents are written in **Emacs Org-mode**.  The
+Python package itself is plain Python: through 0.3.x the modules were tangled from a
+literate Org source, which was retired in 0.4.0.
 
 * Directory Structure
 #+begin_example
@@ -25,6 +25,7 @@ docs/
 | Agent Playbook        | [[file:../AGENTS.org][../AGENTS.org]]                                 | Operational checklist for automated contributors      |
 | Maintainer Preferences| [[file:howto/collaboration_preferences.org][howto/collaboration_preferences.org]]      | Quick reference for Ethan’s working style             |
 | Release Checklist     | [[file:howto/release_checklist.org][howto/release_checklist.org]]               | Step-by-step release preparation                      |
+| 0.4.0 Reorganization  | [[file:reorg-0.4.0.org][reorg-0.4.0.org]]                           | Retiring the literate source: plan and decisions      |
 | Automation Log Sample | [[file:automation/sample_status_log.org][automation/sample_status_log.org]]            | Template + example for agent status notes             |
 
 * Adding Documentation

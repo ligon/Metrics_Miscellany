@@ -15,7 +15,6 @@ evolve.
 - When iterating alongside the =DataMat= repo, use =make use-local-datamat= to install the
   sibling checkout into the Poetry virtualenv, and run =poetry install --sync= to return to
   the PyPI release afterwards.
-- Prefer Org-mode edits over direct Python changes; keep the tangled Python output synced.
 
 * Git Workflow
 - Create dedicated branches for feature work and *commit early and often*.
@@ -27,10 +26,11 @@ evolve.
 - Stick to American spelling (vectorize, linearize) in prose.
 - Use \[ ... \] or \begin{equation} ... \end{equation} delimiters for display math; avoid
   bare Unicode symbols.
-- Summarize estimator behaviour and index conventions when touching =metrics_miscellany.org=.
+- Summarize estimator behaviour and index conventions in the docstrings of whatever
+  you touch under =metrics_miscellany/=.
 
 * Communication
-- Surface blockers immediately (missing dependency, sandbox limit, failing tangle) along with
+- Surface blockers immediately (missing dependency, sandbox limit, failing check) along with
   a proposed remediation.
 - Leave breadcrumbs in =docs/automation/status_log.org= (or a dated sibling) when a session
   introduces decisions worth remembering.

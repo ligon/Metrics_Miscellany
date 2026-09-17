@@ -25,11 +25,11 @@ package: no tangling is required to perform the migration.
      =git show d63c113:metrics_miscellany.org=.
 - Release numbering :: 0.4.0 *is* the reorg.  The bug fixes already on master
      (the two =NameError= defects in =use_indices= and =heteropca=, and the
-     DataMat decoupling) ship with it rather than ahead of it.  Consequence accepted: those
-     defects remain live on PyPI until 0.4.0 lands.  A pure-bugfix 0.3.5 cut
+     DataMat decoupling) ship with it rather than ahead of it.  Consequence
+     accepted: those defects remain live on PyPI until 0.4.0 lands.  A pure-bugfix 0.3.5 cut
      from master stays available as an escape hatch if that wait gets
      uncomfortable.
-- Minor, not patch :: =utils.leverage= changes observable behaviour.  PyPI's
+- Minor, not patch :: =utils.leverage= changes observable behavior.  PyPI's
      0.3.4 defines it twice and the later QR form wins, whose leverages sum to
      =X.shape[1]=; the surviving pseudo-inverse form sums to =rank(X)=.  The
      two disagree whenever \(X\) is rank deficient, and the values feed the HC2
@@ -71,7 +71,7 @@ must survive:
 - The eigenvalue likelihood-ratio test note, whose citation key is corrected
   from =srivastava-khastri79= to =srivastava-khatri79=.
 - The =leverage= pseudo-inverse-versus-QR argument.  It is the only recorded
-  justification for the 0.4.0 behaviour change, and it exists nowhere but the
+  justification for the 0.4.0 behavior change, and it exists nowhere but the
   Org file.
 
 Citations become bracketed author-year text resolving against

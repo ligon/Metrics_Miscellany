@@ -9,7 +9,6 @@ dist/
 */_minted*/
 /CHANGES.txt
 .cache/
-/.tangle
 /.test
 /Metrics_Miscellany.egg-info/
 /.venv/
