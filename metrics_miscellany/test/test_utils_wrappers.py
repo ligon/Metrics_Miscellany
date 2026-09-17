@@ -331,7 +331,7 @@ def test_factor_analysis_unfinished_branches_raise():
 def test_heteropca_warns_instead_of_raising_on_max_its(square_psd):
     """Hitting max_its must emit a warning.
 
-    `warnings` was never imported in the tangled utils.py, so this
+    `warnings` was never imported in utils.py, so this
     branch raised NameError on exactly the non-convergence path the
     warning exists to report.
     """

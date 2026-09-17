@@ -226,6 +226,9 @@ def factor_analysis(
 ):
     """Fit the FactorAnalysis model to X using SVD based MLE approach.
 
+    Adapted from sklearn's FactorAnalysis, but modified to permit missing
+    values.
+
     Parameters
     ----------
     X : array-like of shape (n_samples, n_features) Training data.
@@ -500,6 +503,20 @@ def restricted_linear_gmm(X, y, Z, R, r, W=None, return_Omega=False):
 
 
 def factor_regression(Y, X, F=None, rank=1, tol=1e-3):
+    """Multivariate regression with latent factors.
+
+    The model is
+
+        Y = X B + F Lambda + U,
+
+    where Y and U are N x k, X is N x l, B is l x k, F is N x r, and Lambda
+    is r x k.  Only (Y, X) are observed; F is a collection of latent
+    "factors".  The identifying assumptions are that U is orthogonal to
+    (X, F) and that E F_i F_i' = I_r.
+
+    Hansen (2022) describes the iterative approach to estimation that is
+    implemented here.  Full reference in docs/references.bib.
+    """
 
     if rank > 1:
         raise NotImplementedError("Factor regression for rank>1 is not reliable.")

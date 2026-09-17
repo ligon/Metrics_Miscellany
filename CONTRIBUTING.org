@@ -7,12 +7,11 @@ for contributors so that code, documentation, and tests stay coherent across the
 It complements [[file:README.org][README.org]], [[file:docs/index.org][docs/index.org]], and [[file:AGENTS.org][AGENTS.org]].
 
 * 1. Standards & Source of Truth
-- Primary development happens in =metrics_miscellany.org=, which tangles into the Python
-  modules under =metrics_miscellany/=.  Edit the Org file first and re-run
-  =./tangle.sh metrics_miscellany.org= when you are ready to regenerate code.
-- The tangled =.py= files are committed, so that =pip install git+= yields an importable
-  package.  Commit the regenerated files together with the Org change; =make check-tangle=
-  fails if the two drift apart.
+- The Python modules under =metrics_miscellany/= are the source.  Edit them directly.
+  Through 0.3.x they were generated from a literate Org file by =./tangle.sh=; that
+  source was retired in 0.4.0 and the modules stand on their own.  See
+  [[file:docs/reorg-0.4.0.org][docs/reorg-0.4.0.org]] for the rationale, and =git show d63c113:metrics_miscellany.org=
+  if you need to consult the retired original.
 - The package depends on the external =datamat= project; do not reintroduce a vendored
   copy inside this repository.
 
@@ -42,8 +41,7 @@ It complements [[file:README.org][README.org]], [[file:docs/index.org][docs/inde
   #+begin_src bash
   make quick-check
   #+end_src
-  and record the command in your handoff/PR description.  If you touch tangles, also
-  run the relevant doctests (many Org snippets include inline tests).
+  and record the command in your handoff/PR description.
 
 * 5. Branching & Commits
 - Create feature branches (e.g., =feature/new-estimator=) for substantive work.
@@ -51,8 +49,7 @@ It complements [[file:README.org][README.org]], [[file:docs/index.org][docs/inde
 - When working with automation agents, add =Co-authored-by= trailers as appropriate.
 
 * 6. Pull Request Checklist
-1. Ensure =metrics_miscellany.org= and the generated Python modules are consistent
-   (re-run tangling after edits).
+1. Run =make quick-check= and record the result.
 2. Update documentation or examples that benefit from the change.
 3. Attach benchmark or regression evidence when altering numerical algorithms.
 4. Mention any skipped quality checks and explain why.

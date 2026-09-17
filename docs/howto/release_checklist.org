@@ -23,9 +23,7 @@ Use this checklist when preparing a tagged release of *Metrics_Miscellany*.
 make quick-check
 make slow-tests   # only if slow tests exist / were modified
 #+end_src
-- If tangles changed, re-run =./tangle.sh metrics_miscellany.org=, commit the regenerated
-  =.py= files, and confirm =git status= is clean afterwards.  =make check-tangle= verifies
-  the committed output still matches the org source.
+- Confirm =git status= is clean before tagging.
 
 * Build Artifacts
 #+begin_src bash
@@ -34,8 +32,8 @@ poetry build
 - Optionally install the wheel in a fresh virtualenv to smoke-test importability.
 
 * Version & Tag
-- Update the =version= field in =pyproject.toml= and any version references in the Org
-  sources or README.
+- Update the =version= field in =pyproject.toml= and any version references in the
+  README or docs.
 - Commit with a message like “Bump version to vX.Y.Z” and tag the release:
   #+begin_src bash
   git tag vX.Y.Z
