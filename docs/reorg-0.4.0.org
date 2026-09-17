@@ -1,0 +1,127 @@
+#+TITLE: Release 0.4.0 -- Retiring the Literate Source
+#+AUTHOR: Metrics Miscellany Maintainers
+#+OPTIONS: toc:nil num:nil
+
+* Why now
+Early development used a literate style: =metrics_miscellany.org= was the
+source of truth and =./tangle.sh= generated the Python modules.  The project
+has outgrown it.  The measurement that settles the question: of the 3960 lines
+in =metrics_miscellany.org=, *3651 sit inside =#+begin_src= blocks*.  Prose is
+*86 lines -- 2.2% of the file*.  What remains is a Python codebase wearing Org
+headlines as section dividers, and paying for them with a bespoke build step,
+a =check-tangle= guard, three suppressed ruff rules, and a class of bug
+(silently concatenated blocks redefining the same name) that exists only
+because of the tangling.
+
+The cut is far cheaper than it looks, because the committed =.py= files
+*already are* the tangled, black-formatted output -- =make check-tangle=
+matches 30 of 30.  Deleting the Org file is therefore a no-op for the shipped
+package: no tangling is required to perform the migration.
+
+* Settled decisions
+- Org file :: Deleted outright, not frozen under =docs/legacy/=.  A frozen
+     copy invites "which one is the source?"  Git retains it; the last commit
+     containing it is =d63c113=, recoverable with
+     =git show d63c113:metrics_miscellany.org=.
+- Release numbering :: 0.4.0 *is* the reorg.  The bug fixes already on master
+     (the two =NameError= defects in =use_indices= and =heteropca=, and the
+     DataMat decoupling) ship with it rather than ahead of it.  Consequence accepted: those
+     defects remain live on PyPI until 0.4.0 lands.  A pure-bugfix 0.3.5 cut
+     from master stays available as an escape hatch if that wait gets
+     uncomfortable.
+- Minor, not patch :: =utils.leverage= changes observable behaviour.  PyPI's
+     0.3.4 defines it twice and the later QR form wins, whose leverages sum to
+     =X.shape[1]=; the surviving pseudo-inverse form sums to =rank(X)=.  The
+     two disagree whenever \(X\) is rank deficient, and the values feed the HC2
+     and HC3 corrections.
+- =test_maunchy= :: Dies with the Org file.  =maunchy()= raises
+     =NotImplementedError= on its first line, and the =COMMENT='d test is an
+     unfinished matplotlib exploration with no assertions, truncated mid-line.
+     It could never have passed.  The *prose* is rescued into the =maunchy()=
+     docstring, since that stub survives in =tests.py=.
+- Citations :: Extracted to =docs/references.bib= (commit =fdb4ecc=) from the
+     maintainer's bibliography via texlive's =bibexport=.  Nothing in the build
+     reads it, and nothing should: a fresh clone has no texlive.
+
+* TODO Phase 1 -- the cut
+Delete =metrics_miscellany.org=, =tangle.sh=, and the =tangle= / =check-tangle=
+/ =.tangle= machinery from the =Makefile=; drop =.tangle= from =.gitignore=.
+Rewrite the tangle-workflow material in each file that describes it:
+
+- =README.org= :: the "edit the Org file, never the .py" installation note.
+- =CONTRIBUTING.org= :: section 1, and the tangle step in sections 4 and 6.
+- =AGENTS.org= :: the whole "Org-tangle workflow" section.
+- =docs/index.org= :: the Overview paragraph's claim about Org and tangling.
+- =docs/howto/release_checklist.org= :: the re-tangle step under Quality Gates.
+- =docs/howto/collaboration_preferences.org= :: whatever references tangling.
+- =metrics_miscellany/test/README= :: its entire content is the sentence "This
+     directory for test code tangled from elsewhere."
+
+- Acceptance test :: =git diff --stat -- 'metrics_miscellany/**/*.py'= is
+     empty.  Not one line of Python changes in this phase.
+
+* TODO Phase 2 -- rescue the prose
+Port the roughly 50 substantive prose lines into module and function
+docstrings.  The rest is commentary *about* tangling and dies with it.  What
+must survive:
+
+- The factor-regression model statement (=estimators.factor_regression=).
+- The randomization-inference derivation (=tests.randomization_inference=).
+- The Maunchy sphericity exposition and its Muirhead p. 334 footnote.
+- The eigenvalue likelihood-ratio test note, whose citation key is corrected
+  from =srivastava-khastri79= to =srivastava-khatri79=.
+- The =leverage= pseudo-inverse-versus-QR argument.  It is the only recorded
+  justification for the 0.4.0 behaviour change, and it exists nowhere but the
+  Org file.
+
+Citations become bracketed author-year text resolving against
+=docs/references.bib=; =hansen20:econometrics= becomes =hansen22:econometrics=,
+the published Princeton edition.
+
+Phases 1 and 2 land as one pull request, two commits, so the 86 prose lines
+never exist only in history.
+
+* TODO Phase 3 -- module hygiene
+The concatenation of narrative-ordered blocks left scattered imports:
+=utils.py= carries 11 import statements, the last at line 622; =tests.py= has
+12, including an absolute self-import (=from metrics_miscellany import utils=)
+while =__init__.py= imports =tests= -- a latent circularity that happens to
+work.  Hoist and de-duplicate; convert self-imports to relative.
+
+- Acceptance test :: delete =("metrics_miscellany/**/*.py" = ["I001", "E402",
+     "F811"])= from =pyproject.toml= and =ruff check= still passes.
+
+Once =F811= is live it subsumes =test_no_duplicate_definitions.py=, which
+exists solely to catch the duplicated-definition bug that tangling created.
+Retire it in this phase.  Optional: enable =--doctest-modules=, since
+=utils.py= carries five doctest lines that =testpaths= has never executed.
+
+* TODO Phase 4 -- renames
+All API breaking, so each needs a one-release shim emitting
+=DeprecationWarning=.
+
+- =tests.py= -> =hypothesis_tests.py= :: a module of *statistical* tests
+     sitting beside a =test/= directory is the worst name in the tree.
+- =GMM_class.py= :: fold into =gmm.py=; the name is not PEP 8 and the file is
+     a 79-line class over the procedural module.
+- =random.py= :: shadows the standard library.
+- =metrics_miscellany/test/= -> top-level =tests/= :: conventional, and stops
+     shipping the test suite inside the wheel.  Drags =testpaths=,
+     =[tool.coverage.run] omit=, the =[[tool.mypy.overrides]]= module pattern,
+     and Poetry's =include= with it.
+
+Settle the public surface while here: =__init__.py= today exports neither
+=gmm=, =GMM_class=, nor =random=.
+
+* Out of scope
+- The =gmm= module-attribute state bug (=gmm.gj = gj=, so two =GMM= instances
+  clobber each other).  That is a rewrite, not a reorg.
+- =factor_analysis='s =lapack= and =randomized= branches, still
+  =NotImplementedError= stubs.
+
+* Open question
+=tests.kr79= is named for initials that do not fall out of "Srivastava and
+Khatri" -- that would abbreviate to =sk79=.  Either the name is idiosyncratic
+or the implementation came from a source other than the section prose, which
+cites Srivastava and Khatri section 9.5.  Settle it when the prose moves into
+the docstring: rename, or record why =kr79=.
