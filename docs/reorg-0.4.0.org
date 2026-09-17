@@ -26,9 +26,9 @@ package: no tangling is required to perform the migration.
 - Release numbering :: 0.4.0 *is* the reorg.  The bug fixes already on master
      (the two =NameError= defects in =use_indices= and =heteropca=, and the
      DataMat decoupling) ship with it rather than ahead of it.  Consequence
-     accepted: those defects remain live on PyPI until 0.4.0 lands.  A pure-bugfix 0.3.5 cut
-     from master stays available as an escape hatch if that wait gets
-     uncomfortable.
+     accepted: those defects remain live on PyPI until 0.4.0 lands.  A
+     pure-bugfix 0.3.5 cut from master stays available as an escape hatch if
+     that wait gets uncomfortable.
 - Minor, not patch :: =utils.leverage= changes observable behavior.  PyPI's
      0.3.4 defines it twice and the later QR form wins, whose leverages sum to
      =X.shape[1]=; the surviving pseudo-inverse form sums to =rank(X)=.  The
@@ -43,7 +43,7 @@ package: no tangling is required to perform the migration.
      maintainer's bibliography via texlive's =bibexport=.  Nothing in the build
      reads it, and nothing should: a fresh clone has no texlive.
 
-* TODO Phase 1 -- the cut
+* DONE Phase 1 -- the cut
 Delete =metrics_miscellany.org=, =tangle.sh=, and the =tangle= / =check-tangle=
 / =.tangle= machinery from the =Makefile=; drop =.tangle= from =.gitignore=.
 Rewrite the tangle-workflow material in each file that describes it:
@@ -60,7 +60,7 @@ Rewrite the tangle-workflow material in each file that describes it:
 - Acceptance test :: =git diff --stat -- 'metrics_miscellany/**/*.py'= is
      empty.  Not one line of Python changes in this phase.
 
-* TODO Phase 2 -- rescue the prose
+* DONE Phase 2 -- rescue the prose
 Port the roughly 50 substantive prose lines into module and function
 docstrings.  The rest is commentary *about* tangling and dies with it.  What
 must survive:
@@ -119,9 +119,19 @@ Settle the public surface while here: =__init__.py= today exports neither
 - =factor_analysis='s =lapack= and =randomized= branches, still
   =NotImplementedError= stubs.
 
-* Open question
-=tests.kr79= is named for initials that do not fall out of "Srivastava and
-Khatri" -- that would abbreviate to =sk79=.  Either the name is idiosyncratic
-or the implementation came from a source other than the section prose, which
-cites Srivastava and Khatri section 9.5.  Settle it when the prose moves into
-the docstring: rename, or record why =kr79=.
+* Open questions
+- =tests.kr79= :: Named for initials that do not fall out of "Srivastava and
+     Khatri" -- that would abbreviate to =sk79=.  Either the name is
+     idiosyncratic or the implementation came from a source other than the
+     section prose, which cites Srivastava and Khatri section 9.5.  Rename, or
+     record why =kr79=.
+- =randomization_inference= derivation :: The final step was already malformed
+     in the Org source: a stray =$$= opening a fragment closed by a single
+     =$=, and a sentence with no main verb ("the proportion of times that the
+     test statistic associated with the test of ... gives us a p-value").
+     Phase 2 ported it faithfully rather than guessing at the intent, so the
+     docstring now carries the same incomplete sentence.  Someone who knows
+     what was meant should finish it.
+- =maunchy= :: Still raises =NotImplementedError= on its first line, with the
+     whole body dead behind it and the higher-order correction commented out.
+     Either finish it or drop it; the docstring now says so plainly.

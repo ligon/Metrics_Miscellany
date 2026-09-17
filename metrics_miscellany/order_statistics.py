@@ -2,6 +2,11 @@ from scipy.stats.distributions import binom
 
 
 def quantile_confidence_intervals(x, q=1 / 2, minimum_coverage=0.95):
+    """Quantile of x, with a distribution-free confidence interval.
+
+    Follows William Huber's construction; see
+    https://stats.stackexchange.com/questions/122001/confidence-intervals-for-median
+    """
     α = 1 - minimum_coverage
     x = x.sort_values()
     n = x.shape[0]

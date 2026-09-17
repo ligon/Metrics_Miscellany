@@ -1,3 +1,9 @@
+"""Utilities for operating on pandas DataFrames and Series.
+
+Because the datamat classes inherit from pandas, these functions work on
+DataMat and DataVec as well.
+"""
+
 import numpy as np
 from scipy import sparse as scipy_sparse
 import pandas as pd
@@ -42,8 +48,16 @@ def leverage(X):
 
     Uses the pseudo-inverse, so this is the diagonal of the projection
     onto col(X) whatever the rank of X: the leverages sum to rank(X),
-    not to X.shape[1].  See the Leverage section for why the QR
-    shortcut is not used here.
+    not to X.shape[1].
+
+    It is tempting to compute leverage instead as the row sums of squares
+    of Q from the QR decomposition, since QQ' = X(X'X)^{-1}X' whenever X
+    has full column rank.  That identity fails when X does not:
+    np.linalg.qr still returns k orthonormal columns, but they no longer
+    span col(X), so QQ' is not the projection, and the leverages sum to k
+    rather than to rank(X).  Since the leverages feed the HC2 and HC3
+    residual corrections, where a wrong h_i silently distorts a standard
+    error, the pseudo-inverse form is used throughout.
     """
     return (X * pinv(X).T).sum(axis=1)
 
@@ -592,8 +606,10 @@ def hat_factory(X):
 
     This is the least squares prediction of y given X.
 
-    We use the fact that  the hat matrix is equal to QQ',
-    where Q comes from the QR decomposition of X.
+    We use the fact that the hat matrix is equal to QQ', where Q comes
+    from the QR decomposition of X.  Though mathematically the hat matrix
+    looks like X(X'X)^{-1}X' = QQ', in practice we do not want to construct
+    an N x N matrix like that, as it is often too expensive.
     """
     Q = qr(X)[0]
 

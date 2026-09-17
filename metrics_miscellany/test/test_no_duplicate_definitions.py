@@ -24,8 +24,13 @@ def _top_level_definitions(path):
 def test_no_duplicate_top_level_definitions(path):
     """No module may define the same top-level name twice.
 
-    Concatenated org blocks make this easy to do by accident, and the
-    shadowed definition fails silently rather than loudly.
+    The literate source this package was tangled from through 0.3.x
+    concatenated blocks sharing a :tangle target, which made this easy to
+    do by accident: utils.leverage was defined twice, and the two
+    definitions disagreed.  That source is gone, but ruff's F811 is still
+    disabled package-wide (see [tool.ruff.lint.per-file-ignores]) to
+    tolerate the repeated imports it left behind, so nothing else catches
+    a shadowed definition.  Retire this test once those ignores go.
     """
     duplicates = {
         name: n for name, n in Counter(_top_level_definitions(path)).items() if n > 1
@@ -33,8 +38,7 @@ def test_no_duplicate_top_level_definitions(path):
     assert not duplicates, (
         f"{path.relative_to(PACKAGE.parent)} defines "
         + ", ".join(f"{name!r} {n} times" for name, n in sorted(duplicates.items()))
-        + ".  Two org blocks tangling to this file define the same name; "
-        "the later one wins and the earlier is dead code."
+        + ".  The later definition wins and the earlier is dead code."
     )
 
 

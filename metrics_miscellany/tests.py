@@ -68,6 +68,12 @@ def skillings_mack(df, bootstrap=False):
     """
     Non-parametric test of correlation across columns of df.
 
+    Implements a version of the test proposed in Skillings and Mack
+    (1981), which generalizes the Friedman rank test to the case in which
+    data is incomplete.  Because the Friedman test is a special case, a
+    friedman test is also provided here.  Full reference in
+    docs/references.bib.
+
     Algorithm from https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2761045/
     """
 
@@ -165,8 +171,36 @@ def randomization_inference(
     The optional argument =permute_levels= names index levels along which
     the values of X[vars] are shuffled; the complementary "fixed" levels
     are held in place and the block of values across them is reassigned
-    jointly.  Delegates to =metrics_miscellany.random.permutation= so the
+    jointly.  Delegates to metrics_miscellany.random.permutation so the
     two entry points share one (correct) implementation.
+
+    Suppose we want to estimate a linear regression
+
+        y = alpha + X beta + W gamma + u.
+
+    We obtain estimates (b, V_b) of the coefficients beta and the
+    corresponding covariance matrix.  We want to be able to conduct a test
+    of the hypothesis R'beta = 0.
+
+    The idea here is to use resampling of just the variables X, without
+    replacement, as a way of drawing inferences regarding beta.  In
+    particular, we randomly permute the rows of X, creating a new variable
+    P, and estimate
+
+        y = alpha + P delta + W gamma + u,
+
+    yielding estimates (d, V_d) for the coefficients delta and the
+    covariance matrix of these estimates.
+
+    Note that R'E d = 0 by construction, for any set of linear
+    restrictions R.  The linear restrictions themselves suggest a
+    chi-square test; denote this statistic by T(R, d, V).  We repeat the
+    permute-estimate-test cycle many times.  Then the proportion of times
+    that the test statistic associated with the test of
+    R'(beta - deltahat) > 0 gives us a p-value associated with a test of
+    the null hypothesis that beta > c.  A two-sided test can be
+    constructed from the absolute difference in absolute values; i.e.,
+    |beta - delta| > c.
 
     Ethan Ligon                                       June 2021
     """
@@ -213,6 +247,18 @@ def maunchy(C, N):
     """Given a sample covariance matrix C estimating using N observations,
     return p-value associated with test of whether the population
     covariance matrix is proportional to the identity matrix.
+
+    The test asks whether, given a sample covariance matrix S, one can
+    reject the hypothesis that the population covariance matrix is
+    Sigma = sigma I; i.e., whether the random vector with variance matrix
+    Sigma has a spherical distribution or not.  Note that the test is
+    obtained under the assumption that the random vectors are normally
+    distributed.  Due to Maunchy (1940); see Muirhead (1982), p. 334.
+    Full reference in docs/references.bib.
+
+    NOT IMPLEMENTED: the body below raises before reaching any of it, and
+    the higher-order correction is left commented out, so wiring that in
+    is part of finishing this.
     """
 
     raise NotImplementedError
@@ -256,6 +302,13 @@ def kr79(C, q, N):
     """Given a sample mxm covariance matrix C estimating using N observations,
     return p-value associated with test of whether the population
     covariance matrix has last q eigenvalues equal or not, where q+k=m.
+
+    Suppose we wish to test whether a covariance matrix has the structure
+    Sigma = Lambda Lambda' + lambda I, where Lambda is rank r.  This
+    structure is often assumed in exact factor models, for example.
+    Srivastava and Khatri (1979), section 9.5, suggest the simple
+    likelihood ratio test implemented here.  Full reference in
+    docs/references.bib.
     """
 
     l = np.linalg.eigvalsh(C)  # eigenvalues in *ascending* order
