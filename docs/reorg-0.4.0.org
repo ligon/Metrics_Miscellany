@@ -91,6 +91,11 @@ work.  Hoist and de-duplicate; convert self-imports to relative.
 - Acceptance test :: delete =("metrics_miscellany/**/*.py" = ["I001", "E402",
      "F811"])= from =pyproject.toml= and =ruff check= still passes.
 
+A third residue, found while verifying Phase 2: 65 occurrences of Org's
+=verbatim= markup survive inside shipped docstrings, where =foo= renders as
+literal equals signs under =help()= rather than as code.  Convert to
+backticks or plain text.
+
 Once =F811= is live it subsumes =test_no_duplicate_definitions.py=, which
 exists solely to catch the duplicated-definition bug that tangling created.
 Retire it in this phase.  Optional: enable =--doctest-modules=, since
