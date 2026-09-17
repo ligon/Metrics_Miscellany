@@ -1,16 +1,17 @@
 from . import gmm
 import numpy as np
 
-class GMM(object):
 
-    def __init__(self,gj,data,B,W=None):
+class GMM:
+
+    def __init__(self, gj, data, B, W=None):
         """GMM problem for restrictions E(gj(b0))=0, estimated using data with b0 in R^k.
 
-           - If supplied B is a positive integer k, then
-             space taken to be R^k.
-           - If supplied B is a k-vector, then
-             parameter space taken to be R^k with B a possible
-             starting value for optimization.
+        - If supplied B is a positive integer k, then
+          space taken to be R^k.
+        - If supplied B is a k-vector, then
+          parameter space taken to be R^k with B a possible
+          starting value for optimization.
         """
         self.gj = gj
         gmm.gj = gj  # Overwrite member of gmm module
@@ -27,7 +28,7 @@ class GMM(object):
             self.k = B
             self.b_init = np.zeros(self.k)
 
-        self.ell = gj(self.b_init,self.data).shape[1]
+        self.ell = gj(self.b_init, self.data).shape[1]
 
         if type(data) is tuple:
             self.N = data[0].shape[0]
@@ -36,44 +37,43 @@ class GMM(object):
 
         self.minimize = gmm.minimize
 
-    def gN(self,b):
+    def gN(self, b):
         """Averages of g_j(b).
 
         This is generic for data, to be passed to gj.
         """
-        return gmm.gN(b,self.data)
+        return gmm.gN(b, self.data)
 
-    def Omegahat(self,b):
+    def Omegahat(self, b):
 
-        return gmm.Omegahat(b,self.data)
+        return gmm.Omegahat(b, self.data)
 
-    def JN(self,b,W):
+    def JN(self, b, W):
 
-        return gmm.JN(b,W,self.data)
+        return gmm.JN(b, W, self.data)
 
-    def one_step_gmm(self,W=None,b_init=None):
+    def one_step_gmm(self, W=None, b_init=None):
 
-        self.b = gmm.one_step_gmm(self.data,W,b_init=self.b_init)[0]
+        self.b = gmm.one_step_gmm(self.data, W, b_init=self.b_init)[0]
 
         return self.b
 
     def two_step_gmm(self):
 
-        self.b = gmm.two_step_gmm(self.data,b_init=self.b_init)[0]
+        self.b = gmm.two_step_gmm(self.data, b_init=self.b_init)[0]
         self.W = np.linalg.inv(self.Omegahat(self.b))
 
         return self.b
 
     def continuously_updated_gmm(self):
 
-        est = gmm.continuously_updated_gmm(self.data,b_init=self.b_init)[0]
+        est = gmm.continuously_updated_gmm(self.data, b_init=self.b_init)[0]
         self.b = est
         self.W = np.linalg.inv(self.Omegahat(self.b))
 
         return self.b
 
 
-
-if __name__=='__main__':
-    #foo = GMM(gmm.gj,
+if __name__ == "__main__":
+    # foo = GMM(gmm.gj,
     pass

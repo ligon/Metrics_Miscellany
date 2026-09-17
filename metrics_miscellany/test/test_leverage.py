@@ -13,9 +13,11 @@ def _projection_diagonal(X):
 
 def _frame(a):
     a = np.asarray(a, dtype=float)
-    return pd.DataFrame(a,
-                        index=[f"r{i}" for i in range(a.shape[0])],
-                        columns=[f"c{j}" for j in range(a.shape[1])])
+    return pd.DataFrame(
+        a,
+        index=[f"r{i}" for i in range(a.shape[0])],
+        columns=[f"c{j}" for j in range(a.shape[1])],
+    )
 
 
 def test_leverage_matches_projection_diagonal():
@@ -31,7 +33,7 @@ def test_leverage_sums_to_rank_not_column_count():
     deficient even though they no longer span col(X).
     """
     A = np.random.default_rng(1).standard_normal((8, 3))
-    A[:, 2] = A[:, 0]                      # rank 2, three columns
+    A[:, 2] = A[:, 0]  # rank 2, three columns
     X = _frame(A)
 
     assert np.linalg.matrix_rank(X) == 2
@@ -43,7 +45,7 @@ def test_leverage_accepts_wide_X():
     """n < k must give an answer, not an assertion."""
     X = _frame(np.random.default_rng(2).standard_normal((3, 5)))
     h = leverage(X)
-    assert np.allclose(h, 1.0)             # rows of a wide X are fully levered
+    assert np.allclose(h, 1.0)  # rows of a wide X are fully levered
     assert np.allclose(h, _projection_diagonal(X))
 
 
@@ -60,7 +62,7 @@ def test_leverage_sums_to_rank_full_rank_cases(n, k):
     assert np.isclose(float(np.sum(leverage(X))), float(np.linalg.matrix_rank(X)))
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     test_leverage_matches_projection_diagonal()
     test_leverage_sums_to_rank_not_column_count()
     print("smoke OK")

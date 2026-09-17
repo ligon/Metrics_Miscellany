@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 
+
 def permutation(df, columns=None, permute_levels=None):
     """Return a DataFrame whose values along =columns= are a random
     permutation of those in df.
@@ -32,16 +33,18 @@ def permutation(df, columns=None, permute_levels=None):
     sub = df.loc[:, columns]
 
     if permute_levels is None:
-        return pd.DataFrame(np.random.permutation(sub.values),
-                            index=df.index, columns=columns)
+        return pd.DataFrame(
+            np.random.permutation(sub.values), index=df.index, columns=columns
+        )
 
     if isinstance(permute_levels, str):
         permute_levels = [permute_levels]
 
     fixed = [n for n in df.index.names if n not in permute_levels]
     if not fixed:
-        return pd.DataFrame(np.random.permutation(sub.values),
-                            index=df.index, columns=columns)
+        return pd.DataFrame(
+            np.random.permutation(sub.values), index=df.index, columns=columns
+        )
 
     # Pivot so each row is one permute-level coordinate and the columns
     # enumerate fixed-level coordinates (times the original variables).
@@ -51,8 +54,9 @@ def permutation(df, columns=None, permute_levels=None):
     # actually realizes the permutation: each permute-level coordinate
     # is reassigned the block of values from a randomly chosen other
     # coordinate, while the alignment along the fixed levels is kept.
-    shuffled = pd.DataFrame(np.random.permutation(wide.values),
-                            index=wide.index, columns=wide.columns)
+    shuffled = pd.DataFrame(
+        np.random.permutation(wide.values), index=wide.index, columns=wide.columns
+    )
 
     long = shuffled.stack(fixed)
     long = long.reindex(df.index)

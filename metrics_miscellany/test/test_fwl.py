@@ -1,8 +1,11 @@
 import unittest
 import numpy as np
-import pandas as pd
-from metrics_miscellany.estimators import fwl_regression, reconstruct_coefficients_from_fwl
+from metrics_miscellany.estimators import (
+    fwl_regression,
+    reconstruct_coefficients_from_fwl,
+)
 import datamat as dm
+
 
 class TestFWLRegression(unittest.TestCase):
     def setUp(self):
@@ -12,10 +15,18 @@ class TestFWLRegression(unittest.TestCase):
         N = 1000
 
         D = {}
-        D['Constant'] = dm.DataMat(np.ones(N))
-        D['a'] = dm.DataMat(np.random.randn(N,2))
-        D['b'] = D['a']*2 + np.random.randn(N,2)
-        D['y'] = dm.DataMat(D['a']@np.array((1,1)) + + D['b']@np.array((2,2)) + np.random.randn(N,)/1000,name='y')
+        D["Constant"] = dm.DataMat(np.ones(N))
+        D["a"] = dm.DataMat(np.random.randn(N, 2))
+        D["b"] = D["a"] * 2 + np.random.randn(N, 2)
+        D["y"] = dm.DataMat(
+            D["a"] @ np.array((1, 1))
+            + +D["b"] @ np.array((2, 2))
+            + np.random.randn(
+                N,
+            )
+            / 1000,
+            name="y",
+        )
 
         # Reverse order of dict
         D = dict([D.popitem() for i in range(len(D))])
@@ -23,9 +34,9 @@ class TestFWLRegression(unittest.TestCase):
         self.D = D
 
         # Direct OLS for comparison
-        YX = dm.concat(D,levelnames=True,axis=1)
-        Y = YX.xs('y',level='v',axis=1,drop_level=False)
-        X = YX.iloc[:,1:]
+        YX = dm.concat(D, levelnames=True, axis=1)
+        Y = YX.xs("y", level="v", axis=1, drop_level=False)
+        X = YX.iloc[:, 1:]
 
         self.direct_coefs = X.lstsq(Y)
 
@@ -39,9 +50,9 @@ class TestFWLRegression(unittest.TestCase):
         # Test that the last stage regression gives correct coefficients
         # The last variable (X3) should have the coefficient of Y on X3 after controlling for X1, X2
         # Reconstruct coefficients
-        reconstructed = reconstruct_coefficients_from_fwl(B,as_dict=False)
+        reconstructed = reconstruct_coefficients_from_fwl(B, as_dict=False)
 
-        np.testing.assert_allclose(reconstructed-self.direct_coefs,0,atol=1e-2)
+        np.testing.assert_allclose(reconstructed - self.direct_coefs, 0, atol=1e-2)
 
     def test_reconstruct_coefficients(self):
         # Run FWL regression and ask reconstruct_coefficients_from_fwl for
@@ -55,8 +66,7 @@ class TestFWLRegression(unittest.TestCase):
 
         # The dict output's keys are the regressors (everything in D
         # except the dependent variable).
-        self.assertEqual(set(reconstructed_dict.keys()),
-                         set(self.D.keys()) - {'y'})
+        self.assertEqual(set(reconstructed_dict.keys()), set(self.D.keys()) - {"y"})
 
         # Total parameter count is preserved across the two output forms.
         total = sum(len(v) for v in reconstructed_dict.values())
@@ -74,13 +84,14 @@ class TestFWLRegression(unittest.TestCase):
 
     def test_single_variable(self):
         # Test with a single variable
-        D_single = {'y': self.D['y']}
+        D_single = {"y": self.D["y"]}
         U, B = fwl_regression(D_single)
         self.assertEqual(U, {})
         self.assertEqual(B, {})
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     foo = TestFWLRegression()
     foo.setUp()
-    #foo.test_fwl_regression()
+    # foo.test_fwl_regression()
     unittest.main()

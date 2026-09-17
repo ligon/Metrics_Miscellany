@@ -3,6 +3,7 @@ from scipy import stats
 import pandas as pd
 import numpy as np
 
+
 def chi2_test(b, V, var_selection=None, R=None, TEST=False):
     """Construct chi2 test of R'b = 0.
 
@@ -22,12 +23,13 @@ def chi2_test(b, V, var_selection=None, R=None, TEST=False):
     if var_selection is not None:
         if isinstance(var_selection, str):
             myb = b.query(var_selection)
-        elif isinstance(var_selection, (list, tuple)):
+        elif isinstance(var_selection, list | tuple):
             myb = b.loc[list(var_selection)]
         else:
             raise ValueError(
                 "var_selection should be a query string or a list/tuple "
-                "of variable names.")
+                "of variable names."
+            )
     else:
         myb = b
 
@@ -45,26 +47,30 @@ def chi2_test(b, V, var_selection=None, R=None, TEST=False):
             myV = np.array([[myV]])
             myb = np.array([[myb]])
 
-    if TEST: # Generate values of my that satisfy Var(myb)=Vb and Emyb=0
-        myb = myb*0 + stats.multivariate_normal(cov=((1e0)*np.eye(myV.shape[0]) + myV)).rvs().reshape((-1,1))
+    if TEST:  # Generate values of my that satisfy Var(myb)=Vb and Emyb=0
+        myb = myb * 0 + stats.multivariate_normal(
+            cov=((1e0) * np.eye(myV.shape[0]) + myV)
+        ).rvs().reshape((-1, 1))
 
     # "Invert"...
 
     L = np.linalg.cholesky(myV)
-    y = np.linalg.solve(L.T,myb)
+    y = np.linalg.solve(L.T, myb)
 
-    chi2 = y.T@y
+    chi2 = y.T @ y
 
-    y = pd.Series(y.squeeze(),index=myb.index)
+    y = pd.Series(y.squeeze(), index=myb.index)
 
-    return chi2,1-stats.distributions.chi2.cdf(chi2,df=len(myb))
+    return chi2, 1 - stats.distributions.chi2.cdf(chi2, df=len(myb))
 
-def skillings_mack(df,bootstrap=False):
+
+def skillings_mack(df, bootstrap=False):
     """
     Non-parametric test of correlation across columns of df.
 
     Algorithm from https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2761045/
     """
+
     def construct_statistic(R, kay, X):
         """
         Once we have ranks R (and the original observation matrix X
@@ -79,15 +85,15 @@ def skillings_mack(df,bootstrap=False):
         body.
         """
         # Fill missing ranks with (k_i+1)/2
-        R = R.where(~np.isnan(R),(kay+1)/2,axis=1)
+        R = R.where(~np.isnan(R), (kay + 1) / 2, axis=1)
 
         # Construct adjusted observation matrix
-        A = R.subtract((kay.values+1)/2,axis=1)@np.sqrt(12/(kay.values+1))
+        A = R.subtract((kay.values + 1) / 2, axis=1) @ np.sqrt(12 / (kay.values + 1))
 
         # Count of observations in both columns k and l
-        O = ~np.isnan(X)+0.
+        O = ~np.isnan(X) + 0.0
 
-        Sigma = np.eye(O.shape[0]) - O@O.T
+        Sigma = np.eye(O.shape[0]) - O @ O.T
 
         # Delete diagonal
         Sigma = Sigma - np.diag(np.diag(Sigma))
@@ -95,27 +101,28 @@ def skillings_mack(df,bootstrap=False):
         # Add minus column sums to diagonal
         Sigma = Sigma - np.diag(Sigma.sum())
 
-        return A.T@np.linalg.pinv(Sigma)@A
+        return A.T @ np.linalg.pinv(Sigma) @ A
 
     # Drop any rows with only one column
-    X = df.loc[df.count(axis=1)>0]
+    X = df.loc[df.count(axis=1) > 0]
 
-    n,k = X.shape
+    n, k = X.shape
 
     # Counts of obs per row ("treatments")
     kay = X.count(axis=0)
-
-    # Counts of obs per column ("blocks")
-    en = X.count(axis=1)
 
     R = X.rank(axis=0)
 
     SM = construct_statistic(R, kay, X)
 
     if not bootstrap:
-        p = 1-stats.distributions.chi2.cdf(SM,df=n-1)
+        p = 1 - stats.distributions.chi2.cdf(SM, df=n - 1)
     else:
-        if bootstrap == True:
+        # `bootstrap` is False, True, or a tolerance.  Compared with == and
+        # not `is` so that a caller passing 1 or 1.0 still gets the default
+        # tolerance.  Ruff's E712 suggestion (`if bootstrap:`) would take
+        # this branch for *any* tolerance, and `is True` would skip it for 1.
+        if bootstrap == True:  # noqa: E712
             tol = 1e-03
         else:
             tol = bootstrap
@@ -124,17 +131,21 @@ def skillings_mack(df,bootstrap=False):
         lastSE = np.inf
         its = 0
         sms = []
-        while (its < 30) or (np.abs(SE-lastSE) > tol):
+        while (its < 30) or (np.abs(SE - lastSE) > tol):
             lastSE = SE
-            scrambled = pd.DataFrame(np.apply_along_axis(np.random.permutation,axis=0,arr=R.values),
-                                     index=R.index,columns=R.columns)
-           
+            scrambled = pd.DataFrame(
+                np.apply_along_axis(np.random.permutation, axis=0, arr=R.values),
+                index=R.index,
+                columns=R.columns,
+            )
+
             sms.append(construct_statistic(scrambled, kay, X))
             SE = np.std(sms)
             its += 1
-        p = np.mean(sms>SM)
+        p = np.mean(sms > SM)
 
-    return SM,p
+    return SM, p
+
 
 friedman = skillings_mack
 
@@ -143,7 +154,10 @@ import numpy as np
 from metrics_miscellany.estimators import ols
 from metrics_miscellany.random import permutation as _permutation
 
-def randomization_inference(vars,X,y,permute_levels=None,R=None,tol=1e-3,VERBOSE=False,return_draws=False):
+
+def randomization_inference(
+    vars, X, y, permute_levels=None, R=None, tol=1e-3, VERBOSE=False, return_draws=False
+):
     """
     Return p-values associated with hypothesis that coefficients
     associated with vars are jointly equal to zero.
@@ -157,88 +171,107 @@ def randomization_inference(vars,X,y,permute_levels=None,R=None,tol=1e-3,VERBOSE
     Ethan Ligon                                       June 2021
     """
 
-    assert np.all([v in X.columns for v in vars]), "vars must correspond to columns of X."
+    assert np.all(
+        [v in X.columns for v in vars]
+    ), "vars must correspond to columns of X."
 
-    b,V = ols(X,y)
+    b, V = ols(X, y)
 
     beta = b.squeeze()[vars]
-    chi2 = chi2_test(beta,V,R=R)[0]
+    chi2 = chi2_test(beta, V, R=R)[0]
 
     last = np.inf
     p = 0
     i = 0
     Chi2 = []
-    while (np.linalg.norm(p-last)>tol) or (i < 30):
+    while (np.linalg.norm(p - last) > tol) or (i < 30):
         last = p
         P = _permutation(X, columns=vars, permute_levels=permute_levels)
 
-        myX = pd.concat([X.loc[:,X.columns.difference(vars)],P],axis=1)
-        b,V = ols(myX,y)
-        Chi2.append(chi2_test(b.squeeze()[vars],V,R=R)[0])
-        p = (chi2<Chi2[-1])/(i+1) + last*i/(i+1)
+        myX = pd.concat([X.loc[:, X.columns.difference(vars)], P], axis=1)
+        b, V = ols(myX, y)
+        Chi2.append(chi2_test(b.squeeze()[vars], V, R=R)[0])
+        p = (chi2 < Chi2[-1]) / (i + 1) + last * i / (i + 1)
         i += 1
-        if VERBOSE: print("Latest chi2 (randomized,actual,p): (%6.2f,%6.2f,%6.4f)" % (Chi2[-1],chi2,p))
+        if VERBOSE:
+            print(
+                f"Latest chi2 (randomized,actual,p): "
+                f"({Chi2[-1]:6.2f},{chi2:6.2f},{p:6.4f})"
+            )
 
     if return_draws:
-        return p,pd.Series(Chi2)
+        return p, pd.Series(Chi2)
     else:
         return p
+
 
 import numpy as np
 from scipy.stats.distributions import chi2
 
-def maunchy(C,N):
+
+def maunchy(C, N):
     """Given a sample covariance matrix C estimating using N observations,
-       return p-value associated with test of whether the population
-       covariance matrix is proportional to the identity matrix.
+    return p-value associated with test of whether the population
+    covariance matrix is proportional to the identity matrix.
     """
 
     raise NotImplementedError
 
     m = C.shape[0]
 
-    V = np.linalg.det(C)/((np.trace(C)/m)**m)
+    V = np.linalg.det(C) / ((np.trace(C) / m) ** m)
 
-    rho = 1 - (2*m**2 + m + 2)/(6*m*(N-1))
+    rho = 1 - (2 * m**2 + m + 2) / (6 * m * (N - 1))
 
-    w2 = (m-1)*(m-2)*(m+2)*(2*m**3 + 6*m**2 + 3*m + 2)/(288*(m**2) * ((N-1)**2) * rho**2)
+    w2 = (
+        (m - 1)
+        * (m - 2)
+        * (m + 2)
+        * (2 * m**3 + 6 * m**2 + 3 * m + 2)
+        / (288 * (m**2) * ((N - 1) ** 2) * rho**2)
+    )
 
-    gamma = (((N-1)*rho)**2)*w2
+    # gamma feeds the higher-order correction commented out below.
+    gamma = (((N - 1) * rho) ** 2) * w2  # noqa: F841
 
-    x2 = -2*(N-1)*rho*np.log(V)  # Chi-squared statistic
+    x2 = -2 * (N - 1) * rho * np.log(V)  # Chi-squared statistic
 
-    df = (m+2)*(m-1)/2
+    df = (m + 2) * (m - 1) / 2
 
-    px2 = chi2.cdf(x2,df)
+    px2 = chi2.cdf(x2, df)
 
-    p = px2 + gamma/(((N-1)*rho)**2) * (chi2.cdf(x2,df+4) - px2)
+    # Higher-order correction, kept for whoever implements this (cf. kr79,
+    # which carries the same line commented out).  Note the return below is
+    # the *uncorrected* p-value, so wiring this in is part of the job.
+    # p = px2 + gamma/(((N-1)*rho)**2) * (chi2.cdf(x2,df+4) - px2)
 
-    return x2,1 - px2
+    return x2, 1 - px2
+
 
 import numpy as np
 from scipy.stats.distributions import chi2
 
-def kr79(C,q,N):
-    """Given a sample mxm covariance matrix C estimating using N observations,
-       return p-value associated with test of whether the population
-       covariance matrix has last q eigenvalues equal or not, where q+k=m.
-    """
 
-    m = C.shape[0]
+def kr79(C, q, N):
+    """Given a sample mxm covariance matrix C estimating using N observations,
+    return p-value associated with test of whether the population
+    covariance matrix has last q eigenvalues equal or not, where q+k=m.
+    """
 
     l = np.linalg.eigvalsh(C)  # eigenvalues in *ascending* order
 
-    Q = (np.prod(l[:q])/(np.mean(l[:q])**q))**(N/2) # LR test statistic
+    Q = (np.prod(l[:q]) / (np.mean(l[:q]) ** q)) ** (N / 2)  # LR test statistic
 
-    x2 = -2*np.log(Q)  # Chi-squared statistic
+    x2 = -2 * np.log(Q)  # Chi-squared statistic
 
-    df = (q-1)*(q+2)/2
+    df = (q - 1) * (q + 2) / 2
 
-    px2 = chi2.cdf(x2,df)
+    px2 = chi2.cdf(x2, df)
 
-    #p = px2 + gamma/(((N-1)*rho)**2) * (chi2.cdf(x2,df+4) - px2)
+    # p = px2 + gamma/(((N-1)*rho)**2) * (chi2.cdf(x2,df+4) - px2)
 
-    return x2,1 - px2
+    return x2, 1 - px2
+
 
 def cragg_donald(X, Q):
     r"""
@@ -270,12 +303,13 @@ def cragg_donald(X, Q):
 
     Returns a (statistic, p-value) pair.
     """
-    n, k = Q.shape   # k is the number of instruments l
-    m = X.shape[1]   # number of endogenous regressors
+    n, k = Q.shape  # k is the number of instruments l
+    m = X.shape[1]  # number of endogenous regressors
 
     assert k >= m, (
         f"Cragg-Donald requires at least as many instruments as endogenous "
-        f"regressors (got l={k}, m={m}).")
+        f"regressors (got l={k}, m={m})."
+    )
 
     teststat = utils.inv(X.T @ X.resid(Q)) @ (X.T @ X.proj(Q))
     teststat = (n - k) * teststat.eig()[0].min()

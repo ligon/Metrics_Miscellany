@@ -3,49 +3,52 @@ import datamat as dm
 import numpy as np
 
 sqrt3 = np.sqrt(3)  # Avoid repeated evaluation of this for speed...
-sqrt2pi = np.sqrt(2*np.pi)
+sqrt2pi = np.sqrt(2 * np.pi)
+
 
 def rectangular(u):
-    return (np.abs(u) < sqrt3)/(2*sqrt3)  # Rectangular kernel
+    return (np.abs(u) < sqrt3) / (2 * sqrt3)  # Rectangular kernel
+
 
 def gaussian(u):
-    return np.exp(-(u**2)/2)/sqrt2pi # Gaussian kernel
+    return np.exp(-(u**2) / 2) / sqrt2pi  # Gaussian kernel
 
-def gram(X,kernel=gaussian,bw=1):
+
+def gram(X, kernel=gaussian, bw=1):
     """
     Construct Gram matrix from vector of data X.
     """
     try:
-        idx = X.index
         df = True
         x = X.values
     except AttributeError:
         df = False
         x = X
 
-    assert len(x.shape)==1
-    K = kernel((x.reshape((-1,1)) - x.reshape((1,-1)))/bw)
+    assert len(x.shape) == 1
+    K = kernel((x.reshape((-1, 1)) - x.reshape((1, -1))) / bw)
 
     if df:
-        if isinstance(X,(dm.DataVec,dm.DataMat)):
-            K = dm.DataMat(K,index=X.index,columns=X.index)
-        elif isinstance(X,(pd.Series,pd.DataFrame)):
-            K = pd.DataFrame(K,index=X.index,columns=X.index)
+        if isinstance(X, dm.DataVec | dm.DataMat):
+            K = dm.DataMat(K, index=X.index, columns=X.index)
+        elif isinstance(X, pd.Series | pd.DataFrame):
+            K = pd.DataFrame(K, index=X.index, columns=X.index)
 
     return K
 
 
-
-def kernel_regression(X,y,bw,kernel=gaussian):
+def kernel_regression(X, y, bw, kernel=gaussian):
     """
     Use data (X,y) to estimate E(y|x), using bandwidth bw.
     """
-    def mhat(x):
-        S = kernel((X-x)/bw) # "Smooths"
 
-        return S.dot(y)/S.sum()
+    def mhat(x):
+        S = kernel((X - x) / bw)  # "Smooths"
+
+        return S.dot(y) / S.sum()
 
     return mhat
+
 
 def kernel_regression_variance(X, y, bw, kernel=gaussian):
     """
@@ -81,6 +84,6 @@ def kernel_regression_variance(X, y, bw, kernel=gaussian):
 
     def sigmahat(x):
         S = kernel((X - x) / bw)  # "Smooths"
-        return (S ** 2).dot(e2) / (S ** 2).sum()
+        return (S**2).dot(e2) / (S**2).sum()
 
     return sigmahat

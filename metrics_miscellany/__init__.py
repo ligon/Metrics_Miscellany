@@ -5,10 +5,25 @@ try:
 except PackageNotFoundError:
     __version__ = "0.0.0"
 
+import datamat
+from datamat import DataMat, DataVec
+
 from . import estimators
+from . import kernel_methods
+from . import order_statistics
 from . import tests
 from . import utils
-from . import order_statistics
-from datamat import DataMat, DataVec
-from . import kernel_methods
-import datamat
+
+# Re-exported for `from metrics_miscellany import ...`; named here so that
+# they read as the package's public surface rather than as unused imports.
+__all__ = [
+    "DataMat",
+    "DataVec",
+    "datamat",
+    "estimators",
+    "kernel_methods",
+    "order_statistics",
+    "tests",
+    "utils",
+    "__version__",
+]

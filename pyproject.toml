@@ -46,7 +46,11 @@ extend-exclude = ["build", "dist", "Metrics_Miscellany.egg-info"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
-ignore = ["E501"]
+# E741: `l`, `I` and `O` are the conventional names for a Lagrange
+# multiplier, an identity matrix and a zero matrix.  Renaming them to
+# satisfy the linter works against the goal, stated in README.org, of
+# matching the mathematical description of the problem.
+ignore = ["E501", "E741"]
 
 [tool.ruff.lint.per-file-ignores]
 # Everything under metrics_miscellany/ is tangled from
